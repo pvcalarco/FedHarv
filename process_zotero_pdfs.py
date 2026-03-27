@@ -23,7 +23,17 @@ Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
  You should have received a copy of the GNU Affero General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
- This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
+## 🤖 AI Assistance & Authorship Disclosure
+
+**FedHarv's Zotero Processor** was designed, architected, and verified by **Pascal Calarco**. 
+
+During the development process, AI-augmented coding tools (Google Gemini and GitHub Copilot) were utilized to:
+* Generate boilerplate code and initial function structures.
+* Refactor logic for performance (e.g., implementing multi-threading).
+* Assist with documentation, licensing (AGPL-v3), and testing suites.
+
+All AI-generated suggestions have been manually reviewed, tested, and integrated by the author to ensure technical accuracy, 
+scholarly metadata standards, and adherence to best practices in library and information science.
 ----------------------------------------------------
 """
 
