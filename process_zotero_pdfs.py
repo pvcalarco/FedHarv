@@ -7,6 +7,7 @@
 
 License: MIT License
 Copyright 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
+This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
 
 import os
 import shutil
