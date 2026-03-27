@@ -4,6 +4,7 @@ Federated OA Harvester (v1.0.0: First public release with comprehensive features
 See README.FedHarv.md for full description of purpose and functionality.
 
 License: MIT License
+Copyright 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
 """
 import os
 from dotenv import load_dotenv
