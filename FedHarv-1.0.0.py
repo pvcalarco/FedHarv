@@ -1,14 +1,7 @@
 """
 Federated OA Harvester (v1.0.0: First public release with comprehensive features and optimizations)
 ----------------------------------------------------
-Features:
-  1. SPLIT OUTPUT: 
-     - If PDF found -> Save to 'Items_With_PDF' folder (No RIS).
-     - If PDF missing -> Save to 'Items_Only_Link' AND write to 'citations.ris'.
-  2. METADATA GUARANTEE: Always harvests CrossRef, FundRef, Datacite, DOAJ.
-  3. PDF WATERFALL: OpenAlex -> Unpaywall -> CrossRef TDM -> Heuristics.
-  4. STRICT FILTERING: Only processes Gold, Hybrid, Diamond, and Green.
-  5. DATE RANGE: Queries APIs using YYYY-MM-DD date ranges instead of a single year.
+See README.FedHarv.md for full description of purpose and functionality.
 
 License: MIT License
 """
