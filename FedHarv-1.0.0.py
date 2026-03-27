@@ -1,5 +1,5 @@
 """
-Federated OA Harvester (v16.1: First public release with comprehensive features and optimizations)
+Federated OA Harvester (v1.0.0: First public release with comprehensive features and optimizations)
 ----------------------------------------------------
 Features:
   1. SPLIT OUTPUT: 
