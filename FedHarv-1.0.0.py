@@ -1,20 +1,33 @@
-# FedHarv - A scholarly metadata harvesting tool
-# Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-# This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
+"""
+----------------------------------------------------
+FedHarv - A scholarly metadata harvesting tool
+ Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as
+ published by the Free Software Foundation, either version 3 of the
+ License. See https://www.gnu.org/licenses/agpl-3.0.en.html
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU Affero General Public License for more details.
+
+ You should have received a copy of the GNU Affero General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+## 🤖 AI Assistance & Authorship Disclosure
+
+**FedHarv** was designed, architected, and verified by **Pascal Calarco**. 
+
+During the development process, AI-augmented coding tools (Google Gemini and GitHub Copilot) were utilized to:
+* Generate boilerplate code and initial function structures.
+* Refactor logic for performance (e.g., implementing multi-threading).
+* Assist with documentation, licensing (AGPL-v3), and testing suites.
+
+All AI-generated suggestions have been manually reviewed, tested, and integrated by the author to ensure technical accuracy, 
+scholarly metadata standards, and adherence to best practices in library and information science.
+"""
 
 import os
 from dotenv import load_dotenv
