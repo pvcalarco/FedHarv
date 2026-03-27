@@ -1,0 +1,21 @@
+Element,Status,Page
+dc contributor,Mandatory,4
+dc contributor,Mandatory,4
+dc coverage,Recommended,4
+dc date,Mandatory,4
+dc date,Mandatory,4
+dc date,Mandatory,4
+dc description,Mandatory,4
+dc format,Recommended,4
+dc identifier,Mandatory,4
+dc identifier,Recommended,4
+dc identifier,Recommended,4
+dc identifier,Recommended,4
+dc language,Mandatory,4
+dc publisher,Mandatory,4
+dc relation,Recommended,4
+dc relation,Mandatory,4
+dc rights,Mandatory,4
+dc subject,Mandatory,4
+dc title,Mandatory,4
+dc type,Mandatory,4
