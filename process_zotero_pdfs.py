@@ -1,13 +1,18 @@
-# Zotero processor for FedHarv
-#
-# For PDFs not retrieved by one of the harvesters, these will be saved in a citations.ris file in the output folder.
-# After importing citations.ris into Zotero, you can select all of these citations in Zotero, left click, and try to 
-# "Find fulltext". After the process is complete, remember to export all items and PDFs before closing the window.
-# These will be available in a new folder "Exported Items" in your original output folder.
+"""
+----------------------------------------------------
+Zotero processor for FedHarv
+
+For PDFs not retrieved by one of the harvesters, these will be saved in a citations.ris file in the output folder.
+
+After importing citations.ris into Zotero, you can select all of these citations in Zotero, left click, and try to "Find fulltext". After the process is complete, remember to export all items and PDFs before closing the window.
+
+These will be available in a new folder "Exported Items" in your original output folder.
 
 License: MIT License
 Copyright 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
 This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
+----------------------------------------------------
+"""
 
 import os
 import shutil
