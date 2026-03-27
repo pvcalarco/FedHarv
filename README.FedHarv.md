@@ -3,10 +3,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-A sophisticated, production-ready federated harvester for open access academic content, designed to automatically discover, enrich, and harvest scholarly articles with PDF availability from multiple sources. 
-The problem we are trying to provide a solution for is to to the extent possible, identify Creative Commons-licensed scholarly works (journal articles, letters to the editor, retractions, errata, book chapters, 
-conference proceedings, and open access books) that are authored by researchers, faculty and students of an institution of higher education or research, harvest the metadata and associated PDF from a variety of API services, and then provide these in a series of folders for the repository manager to quickly check (for departmental and institutional affiliation and CC license correctness), package these up into Simple Archive Format (SAF), ready for batch ingest into DSpace institutional repositories. The harvester isn't perfect and you should still check to make sure closed or bronze OA items were not harvested in error, but the author has made
-every effort to do so and has encountered few such errors after much iteration over this.
+FedHarv is a sophisticated, production-ready federated harvester for open access academic content, designed to automatically discover, enrich, and harvest scholarly articles with PDF availability from multiple sources. 
+
+The problem we are trying to provide a solution for is to to the extent possible, identify Creative Commons-licensed scholarly works (journal articles, letters to the editor, retractions, errata, book chapters, conference proceedings, and open access books) that are authored by researchers, faculty and students of an institution of higher education or research, harvest the metadata and associated PDF from a variety of API services. Where we can't find a non-paywalled version, we use Unpaywall 
+to identify author manuscripts and preprints that can be deposited.
+
+The script then provides these metadata and PDFs in a series of folders for the repository manager to quickly check (for departmental and institutional affiliation and CC license correctness), package these up into Simple Archive Format (SAF), ready for batch ingest into DSpace institutional repositories.
+
+The harvester isn't perfect and you should still check to make sure closed or bronze OA items were not harvested in error, but the author has made every effort to do so and has encountered few such errors after much iteration over this.
+
+With this tool, you'll be able to gather together as much of the Open Access scholarly works that your community has formally written and legally deposit these into your organization's institutional repository. If you find this software useful, please drop me an email! 
 
 ## Table of Contents
 
