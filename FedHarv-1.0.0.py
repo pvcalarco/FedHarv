@@ -1,12 +1,21 @@
-"""
-Federated OA Harvester (v1.0.0: First public release with comprehensive features and optimizations)
-----------------------------------------------------
-See README.FedHarv.md for full description of purpose and functionality.
+# FedHarv - A scholarly metadata harvesting tool
+# Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
 
-License: MIT License
-Copyright 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
-This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
-"""
 import os
 from dotenv import load_dotenv
 
