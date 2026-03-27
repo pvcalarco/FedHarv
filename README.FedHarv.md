@@ -521,7 +521,7 @@ black FedHarv-162.py
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPL-v3 License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
@@ -529,4 +529,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Last Updated**: March 2026  
 **Maintainer**: Pascal V. Calarco
 **Contact**: pcalarco@uwindsor.ca</content>
-<parameter name="filePath">C:\Users\pvcal\Documents\Scripts\README-FedHarv-20260327.md
+<parameter name="filePath">C:\Users\pvcal\Documents\Scripts\README-FedHarv.md
