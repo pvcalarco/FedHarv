@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """
 ----------------------------------------------------
 Zotero processor for FedHarv
@@ -13,7 +14,7 @@ Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU Affero General Public License as
  published by the Free Software Foundation, either version 3 of the
- License. See https://www.gnu.org/licenses/agpl-3.0.en.html
+ License. 
 
  This program is distributed in the hope that it will be useful,
  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -25,15 +26,14 @@ Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
 
 ## 🤖 AI Assistance & Authorship Disclosure
 
-**FedHarv's Zotero Processor** was designed, architected, and verified by **Pascal Calarco**. 
+**FedHarv** was designed, architected, and verified by **Pascal Calarco**. 
 
 During the development process, AI-augmented coding tools (Google Gemini and GitHub Copilot) were utilized to:
 * Generate boilerplate code and initial function structures.
 * Refactor logic for performance (e.g., implementing multi-threading).
 * Assist with documentation, licensing (AGPL-v3), and testing suites.
 
-All AI-generated suggestions have been manually reviewed, tested, and integrated by the author to ensure technical accuracy, 
-scholarly metadata standards, and adherence to best practices in library and information science.
+All AI-generated suggestions have been manually reviewed, tested, and integrated by the author to ensure technical accuracy, scholarly metadata standards, and adherence to best practices in library and information science.
 ----------------------------------------------------
 """
 

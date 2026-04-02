@@ -1,34 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """
 ----------------------------------------------------
-FedHarv - A scholarly metadata harvesting tool
- Copyright (C) 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
+Federated OA Harvester (v1.0.0: First public release with comprehensive features and optimizations)
+----------------------------------------------------
+See README.FedHarv.md for full description of purpose and functionality.
 
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU Affero General Public License as
- published by the Free Software Foundation, either version 3 of the
- License. See https://www.gnu.org/licenses/agpl-3.0.en.html
-
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU Affero General Public License for more details.
-
- You should have received a copy of the GNU Affero General Public License
- along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-## 🤖 AI Assistance & Authorship Disclosure
-
-**FedHarv** was designed, architected, and verified by **Pascal Calarco**. 
-
-During the development process, AI-augmented coding tools (Google Gemini and GitHub Copilot) were utilized to:
-* Generate boilerplate code and initial function structures.
-* Refactor logic for performance (e.g., implementing multi-threading).
-* Assist with documentation, licensing (AGPL-v3), and testing suites.
-
-All AI-generated suggestions have been manually reviewed, tested, and integrated by the author to ensure technical accuracy, 
-scholarly metadata standards, and adherence to best practices in library and information science.
+License: GNU Affero General Public License v3.0 (AGPL-3.0)
+Copyright 2026 Pascal V. Calarco <pcalarco@uwindsor.ca>
+This script was developed with the help of Google Gemini Pro 3.1 and Microsoft Copilot
 """
-
 import os
 from dotenv import load_dotenv
 
@@ -779,7 +759,8 @@ def check_dspace_duplicate(doi, check_enabled, api_url):
     return False
 
 class FedHarv:
-    def __init__(self):
+    def __init__(self, config_path=None):
+        self.config_path = config_path
         self.load_config()
         self.setup_logging()
         self.setup_session()
@@ -794,19 +775,23 @@ class FedHarv:
         }
 
     def load_config(self):
-        # Simplify argparse to only handle the config file path
-        parser = argparse.ArgumentParser(description="Harvest OA Content for DSpace")
-        parser.add_argument("--config", type=str, default="config.ini", help="Path to config file")
-        self.args = parser.parse_args()
+        # Support both CLI invocation and programmatic use (e.g., Dagster assets).
+        if self.config_path:
+            config_file = self.config_path
+        else:
+            parser = argparse.ArgumentParser(description="Harvest OA Content for DSpace")
+            parser.add_argument("--config", type=str, default="config.ini", help="Path to config file")
+            self.args = parser.parse_args()
+            config_file = self.args.config
 
         self.config = configparser.ConfigParser()
         self.config.optionxform = str 
         
-        if not os.path.exists(self.args.config):
-            print(f"CRITICAL: Configuration file '{self.args.config}' not found.")
+        if not os.path.exists(config_file):
+            print(f"CRITICAL: Configuration file '{config_file}' not found.")
             sys.exit(1)
             
-        self.config.read(self.args.config)
+        self.config.read(config_file)
 
         try:
             # Read variables directly from config.ini
@@ -1633,46 +1618,50 @@ class FedHarv:
                 for pub, count in pubs.most_common():
                     w.writerow([dept, pub, count])
 
+    def discover(self):
+        print(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.START_DATE} to {self.END_DATE}...")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_oa = executor.submit(self.harvest_openalex)
+            f_cr = executor.submit(self.harvest_crossref)
+            oa_list = f_oa.result()
+            cr_list = f_cr.result()
+        return oa_list, cr_list
+
+    def process_items(self, final_list):
+        self.csv_handle = open(self.csv_file, 'a', newline='', encoding='utf-8')
+        self.csv_writer = csv.DictWriter(self.csv_handle, fieldnames=['DOI', 'Title', 'ISSN', 'Doc_Type', 'Source', 'Folder_Type', 'Dept', 'PDF_Status', 'PDF_Source', 'Sherpa_Policy', 'OA_Status', 'Notes'])
+        if os.path.getsize(self.csv_file) == 0:
+            self.csv_writer.writeheader()
+
+        self.ris_handle = open(self.ris_file, 'a', encoding='utf-8')
+        self.playwright_queue = []
+
+        print(f"Processing {len(final_list)} unique items with 15 threads...")
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = [executor.submit(self.process_item, idx, item) for idx, item in enumerate(final_list)]
+            for f in as_completed(futures):
+                pass
+
+        if self.playwright_queue:
+            print(f"Processing {len(self.playwright_queue)} items via Playwright fallback...")
+            self.process_playwright_queue()
+
+        self.csv_handle.close()
+        self.ris_handle.close()
+
+        self.generate_summary()
+        self.generate_publisher_report()
+
     def run(self):
         robust_cleanup(self.OUTPUT_DIR)
         os.makedirs(self.OUTPUT_DIR)
         with open(self.ris_file, 'w', encoding='utf-8') as f: pass
 
         generate_import_scripts(self.OUTPUT_DIR, self.DSPACE_BIN, self.DSPACE_EMAIL)
-        
-        print(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.START_DATE} to {self.END_DATE}...")
-        
-        # NOTE: Updated to pass no arguments since start/end date are now instance attributes
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            f_oa = executor.submit(self.harvest_openalex)
-            f_cr = executor.submit(self.harvest_crossref)
-            oa_list = f_oa.result()
-            cr_list = f_cr.result()
-            
+
+        oa_list, cr_list = self.discover()
         final_list = self.deduplicate_and_merge(oa_list, cr_list)
-        
-        self.csv_handle = open(self.csv_file, 'a', newline='', encoding='utf-8')
-        self.csv_writer = csv.DictWriter(self.csv_handle, fieldnames=['DOI', 'Title', 'ISSN', 'Doc_Type', 'Source', 'Folder_Type', 'Dept', 'PDF_Status', 'PDF_Source', 'Sherpa_Policy', 'OA_Status', 'Notes'])
-        if os.path.getsize(self.csv_file) == 0:
-            self.csv_writer.writeheader()
-            
-        self.ris_handle = open(self.ris_file, 'a', encoding='utf-8')
-        self.playwright_queue = []
-        
-        print(f"Processing {len(final_list)} unique items with 15 threads...")
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            futures = [executor.submit(self.process_item, idx, item) for idx, item in enumerate(final_list)]
-            for f in as_completed(futures): pass
-            
-        if self.playwright_queue:
-            print(f"Processing {len(self.playwright_queue)} items via Playwright fallback...")
-            self.process_playwright_queue()
-            
-        self.csv_handle.close()
-        self.ris_handle.close()
-        
-        self.generate_summary()
-        self.generate_publisher_report()
+        self.process_items(final_list)
 
     def generate_summary(self):
         print(f"\n--- HARVEST COMPLETE ---\nUnique Items: {len(self.STATS['dept_breakdown'])}\nPDFs: {self.STATS['pdf_success']}\nSources: {dict(self.STATS['pdf_sources'])}")

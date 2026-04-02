@@ -1,18 +1,9 @@
 # FedHarv: Federated Open Access Harvester
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-FedHarv is a sophisticated, production-ready federated harvester for open access academic content, designed to automatically discover, enrich, and harvest scholarly articles with PDF availability from multiple sources. 
-
-The problem we are trying to provide a solution for is to to the extent possible, identify Creative Commons-licensed scholarly works (journal articles, letters to the editor, retractions, errata, book chapters, conference proceedings, and open access books) that are authored by researchers, faculty and students of an institution of higher education or research, harvest the metadata and associated PDF from a variety of API services. Where we can't find a non-paywalled version, we use Unpaywall 
-to identify author manuscripts and preprints that can be deposited.
-
-The script then provides these metadata and PDFs in a series of folders for the repository manager to quickly check (for departmental and institutional affiliation and CC license correctness), package these up into Simple Archive Format (SAF), ready for batch ingest into DSpace institutional repositories.
-
-The harvester isn't perfect and you should still check to make sure closed or bronze OA items were not harvested in error, but the author has made every effort to do so and has encountered few such errors after much iteration over this.
-
-With this tool, you'll be able to gather together as much of the Open Access scholarly works that your community has formally written and legally deposit these into your organization's institutional repository. If you find this software useful, please drop me an email! 
+A sophisticated, production-ready federated harvester for open access academic content, designed to automatically discover, enrich, and harvest scholarly articles with PDF availability from multiple sources.
 
 ## Table of Contents
 
@@ -280,10 +271,35 @@ PDF_MAX_SIZE=50MB
 
 ```bash
 # Run with default configuration
-python FedHarv-162.py
+python FedHarv-1.0.0.py
 
 # Specify custom config file
-python FedHarv-162.py --config my-config.ini
+python FedHarv-1.0.0.py --config my-config.ini
+```
+
+### Dagster Assets
+
+FedHarv now includes asset definitions in `fedharv_dagster.py`.
+
+```bash
+# Install dependencies (includes dagster)
+pip install -r requirements.txt
+
+# Start Dagster UI from project root
+dagster dev -f fedharv_dagster.py
+```
+
+Asset graph:
+
+1. `discover_records` - runs OpenAlex and Crossref discovery in parallel
+2. `merged_records` - deduplicates and merges discovered records
+3. `materialized_harvest` - writes SAF outputs, reports, and summary files
+
+In Dagster launchpad, set asset config as needed:
+
+```yaml
+config_path: config.example.FedHarv.ini
+reset_output: true
 ```
 
 ### Advanced Usage
@@ -530,7 +546,7 @@ black FedHarv-162.py
 
 ## License
 
-This project is licensed under the AGPL-v3 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see [license](license) and [GNU AFFERO GENERAL PUBLIC LICENSE.md](GNU AFFERO GENERAL PUBLIC LICENSE.md) for details.
 
 ---
 
@@ -538,4 +554,4 @@ This project is licensed under the AGPL-v3 License - see the [LICENSE](LICENSE) 
 **Last Updated**: March 2026  
 **Maintainer**: Pascal V. Calarco
 **Contact**: pcalarco@uwindsor.ca</content>
-<parameter name="filePath">C:\Users\pvcal\Documents\Scripts\README-FedHarv.md
+<parameter name="filePath">C:\Users\pvcal\Documents\Scripts\README-FedHarv-20260327.md

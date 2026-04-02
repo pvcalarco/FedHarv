@@ -1,6 +1,6 @@
 # Zotero PDF Processor
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
 A companion utility for FedHarv that integrates Zotero PDF collections with DSpace SAF packages, providing a bridge between reference management and institutional repository workflows.
@@ -390,7 +390,7 @@ python process_zotero_pdfs.py --test-mode
 
 ## License
 
-This project is licensed under the AGPL-v3 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see [license](license) and [GNU AFFERO GENERAL PUBLIC LICENSE.md](GNU AFFERO GENERAL PUBLIC LICENSE.md) for details.
 
 ---
 
