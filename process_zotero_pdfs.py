@@ -45,30 +45,157 @@ import configparser
 import csv
 import requests
 import time
-from urllib.parse import unquote
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
+
+def _normalize_doi(value):
+    if not value:
+        return None
+    doi = str(value).strip().lower().replace('https://doi.org/', '')
+    return doi if doi.startswith('10.') else None
+
+def _load_exported_dois(exported_csv_path):
+    if not os.path.exists(exported_csv_path):
+        return set()
+
+    with open(exported_csv_path, 'r', encoding='utf-8-sig', newline='') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    if not rows:
+        return set()
+
+    doi_col = None
+    for c in ('DOI', 'Doi', 'doi', 'DO'):
+        if c in rows[0]:
+            doi_col = c
+            break
+    if not doi_col:
+        return set()
+
+    dois = set()
+    for row in rows:
+        doi = _normalize_doi(row.get(doi_col))
+        if doi:
+            dois.add(doi)
+    return dois
+
+def _load_report_dois(report_path):
+    try:
+        with open(report_path, 'r', encoding='utf-8-sig', newline='') as f:
+            reader = csv.DictReader(f)
+            dois = set()
+            for row in reader:
+                doi = _normalize_doi(row.get('DOI'))
+                if doi:
+                    dois.add(doi)
+            return dois
+    except Exception:
+        return set()
+
+def resolve_base_dir(script_dir, preferred_base_dir):
+    """Pick the output folder and year whose harvest report best matches Exported Items DOIs."""
+    exported_csv = os.path.join(script_dir, 'Exported Items', 'Exported Items.csv')
+    exported_dois = _load_exported_dois(exported_csv)
+    if not exported_dois:
+        return preferred_base_dir, None
+
+    best_base = preferred_base_dir
+    best_overlap = 0
+    best_year = None
+
+    for root, _, files in os.walk(script_dir):
+        for name in files:
+            if not (name.startswith('harvest_report_') and name.endswith('.csv')):
+                continue
+            report_path = os.path.join(root, name)
+            report_dois = _load_report_dois(report_path)
+            if not report_dois:
+                continue
+            overlap = len(exported_dois.intersection(report_dois))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_base = os.path.dirname(report_path)
+                m = re.search(r'harvest_report_(\d{4})\d{4}_\d{8}\.csv$', name)
+                if m:
+                    best_year = m.group(1)
+
+    if best_overlap > 0 and os.path.abspath(best_base) != os.path.abspath(preferred_base_dir):
+        print(f"Auto-detected output folder from DOI overlap: {best_base} ({best_overlap} matches)")
+
+    return best_base, best_year
+
+def _resolve_output_dir_template(output_dir, start_date, end_date):
+    if not output_dir:
+        return output_dir
+
+    start_year = start_date.split('-')[0] if start_date else ''
+    end_year = end_date.split('-')[0] if end_date else ''
+
+    replacements = {
+        "StartDate": start_date,
+        "EndDate": end_date,
+        "StartYear": start_year,
+        "EndYear": end_year,
+    }
+
+    expanded = str(output_dir)
+    for key, value in replacements.items():
+        expanded = expanded.replace(f"{{{key}}}", value)
+        expanded = expanded.replace(f"[{key}]", value)
+    return expanded
 
 # CONFIGURATION
 def load_config():
     config = configparser.ConfigParser()
     # Preserve key case
-    config.optionxform = str
-    
-    config_path = r"C:\Users\pvcal\Documents\Scripts\config.ini"
-    if not os.path.exists(config_path):
-        print(f"CRITICAL: Config file not found at {config_path}")
+    config.optionxform = str  # type: ignore[assignment]
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_candidates = [
+        os.path.join(script_dir, "config.ini"),
+        os.path.join(os.path.dirname(script_dir), "config.ini")
+    ]
+
+    config_path = None
+    for candidate in config_candidates:
+        if os.path.exists(candidate):
+            config_path = candidate
+            break
+
+    if not config_path:
+        print("CRITICAL: Config file not found. Checked:")
+        for candidate in config_candidates:
+            print(f" - {candidate}")
         sys.exit(1)
     
     config.read(config_path)
     
     try:
-        output_dir = config.get('General', 'OutputDir')
-        year = config.get('Search', 'Year')
-        email = config.get('General', 'Email')
+        output_dir = config.get('General', 'OutputDir').strip()
+        email = config.get('General', 'Email').strip().strip('[]')
+        start_date = config.get('Search', 'StartDate').strip()
+        end_date = config.get('Search', 'EndDate').strip()
+        output_dir = _resolve_output_dir_template(output_dir, start_date, end_date)
+
+        if config.has_option('Search', 'Year'):
+            year = config.get('Search', 'Year').strip()
+        else:
+            # Backward-compatible fallback for modern config files.
+            year = start_date.split('-')[0]
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
         print(f"CRITICAL: Missing configuration in config.ini: {e}")
         sys.exit(1)
-    
-    base_dir = os.path.join(r"C:\Users\pvcal\Documents\Scripts", output_dir)
+
+    if not os.path.isabs(output_dir):
+        base_dir = os.path.abspath(os.path.join(script_dir, output_dir))
+    else:
+        base_dir = output_dir
+
+    base_dir, detected_year = resolve_base_dir(script_dir, base_dir)
+    if detected_year and detected_year != year:
+        print(f"Auto-detected year label from matched report: {detected_year}")
+        year = detected_year
+
     return base_dir, year, email
 
 def fetch_green_oa_url(doi, email):
@@ -88,21 +215,132 @@ def fetch_green_oa_url(doi, email):
         print(f"Error checking Unpaywall for {doi}: {e}")
     return None
 
-def download_pdf(url, dest_path):
+def _build_http_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
+    })
+    return session
+
+def _candidate_pdf_urls(url):
+    candidates = []
+
+    def add(u):
+        if u and u not in candidates:
+            candidates.append(u)
+
+    add(url)
+    parsed = urlparse(url)
+
+    # Upgrade http to https when possible.
+    if parsed.scheme == 'http':
+        add(urlunparse(parsed._replace(scheme='https')))
+
+    host = parsed.netloc.lower()
+    path = parsed.path
+
+    # Drop noisy query strings that often break direct PDF fetches.
+    if parsed.query:
+        add(urlunparse(parsed._replace(query='')))
+
+    # Publisher-specific cleanups.
+    if 'mdpi.com' in host and '/pdf' in path and parsed.query:
+        add(urlunparse(parsed._replace(query='')))
+
+    if 'onlinelibrary.wiley.com' in host and '/pdfdirect/' in path:
+        add(url.replace('/pdfdirect/', '/pdf/'))
+
+    if 'tandfonline.com' in host and 'needAccess=' in parsed.query:
+        add(urlunparse(parsed._replace(query='')))
+
+    return candidates
+
+def _extract_pdf_url_from_html(html, page_url):
+    if not html:
+        return None
+
+    patterns = [
+        r'<meta\s+name=["\']citation_pdf_url["\']\s+content=["\'](.*?)["\']',
+        r'<meta\s+property=["\']citation_pdf_url["\']\s+content=["\'](.*?)["\']',
+        r'href=["\']([^"\']+\.pdf(?:\?[^"\']*)?)["\']',
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, html, re.IGNORECASE)
+        if m:
+            return urljoin(page_url, m.group(1).strip())
+    return None
+
+def _stream_pdf_to_path(session, url, dest_path, verify_ssl=True):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        with requests.get(url, stream=True, timeout=30, headers=headers) as r:
-            if r.status_code == 200:
-                # Basic check for PDF content type or magic bytes
-                chunk = next(r.iter_content(chunk_size=1024))
-                if b'%PDF-' in chunk:
-                    with open(dest_path, 'wb') as f:
+        with session.get(url, stream=True, timeout=45, allow_redirects=True, verify=verify_ssl) as r:
+            if r.status_code != 200:
+                return False, False
+
+            chunk_iter = r.iter_content(chunk_size=8192)
+            first_chunk = next(chunk_iter, b'')
+
+            content_type = (r.headers.get('Content-Type') or '').lower()
+            content_disposition = (r.headers.get('Content-Disposition') or '').lower()
+            looks_like_pdf = (
+                b'%PDF-' in first_chunk[:2048] or
+                'application/pdf' in content_type or
+                '.pdf' in content_disposition
+            )
+
+            if not looks_like_pdf:
+                return False, False
+
+            with open(dest_path, 'wb') as f:
+                if first_chunk:
+                    f.write(first_chunk)
+                for chunk in chunk_iter:
+                    if chunk:
                         f.write(chunk)
-                        for chunk in r.iter_content(chunk_size=4096):
-                            f.write(chunk)
+            return True, False
+    except requests.exceptions.SSLError:
+        return False, True
+    except Exception:
+        return False, False
+
+def download_pdf(url, dest_path):
+    session = _build_http_session()
+    last_error = None
+
+    for candidate_url in _candidate_pdf_urls(url):
+        try:
+            ok, ssl_error = _stream_pdf_to_path(session, candidate_url, dest_path, verify_ssl=True)
+            if ok:
+                return True
+
+            # Some endpoints have broken cert chains; retry without SSL verification only in that case.
+            if ssl_error:
+                ok, _ = _stream_pdf_to_path(session, candidate_url, dest_path, verify_ssl=False)
+                if ok:
                     return True
-    except Exception as e:
-        print(f"Download failed for {url}: {e}")
+
+            # If direct PDF fetch failed, try parsing landing HTML for citation_pdf_url/pdf links.
+            page = session.get(candidate_url, timeout=25, allow_redirects=True, verify=True)
+            if page.status_code == 200 and 'text/html' in (page.headers.get('Content-Type') or '').lower():
+                extracted_pdf = _extract_pdf_url_from_html(page.text, page.url)
+                if extracted_pdf:
+                    for html_candidate in _candidate_pdf_urls(extracted_pdf):
+                        ok, ssl_error = _stream_pdf_to_path(session, html_candidate, dest_path, verify_ssl=True)
+                        if ok:
+                            return True
+                        if ssl_error:
+                            ok, _ = _stream_pdf_to_path(session, html_candidate, dest_path, verify_ssl=False)
+                            if ok:
+                                return True
+        except Exception as e:
+            last_error = e
+
+    if last_error:
+        print(f"Download failed for {url}: {last_error}")
     return False
 
 def parse_ris_map(ris_path):
