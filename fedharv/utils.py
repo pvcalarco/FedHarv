@@ -1,4 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+"""Shared, dependency-light helpers used across the package.
+
+Decorators (safe_call, cached_api_call), the in-memory + on-disk JSON response
+cache (load_from_cache / save_to_cache, with an optional TTL), text/JSON
+normalization (clean_text, normalize_string, deep_get, ensure_list_of_dicts,
+reconstruct_openalex_abstract), OA-status / doctype / license normalization, and
+affiliation/department matching (affiliation_matches_target,
+determine_primary_department).
+"""
 import os
 import re
 import json

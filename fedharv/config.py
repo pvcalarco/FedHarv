@@ -1,4 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+"""Configuration and shared constants.
+
+Defines ConfigManager (parses CLI args + config.ini, with .env fallbacks for the
+SCOPUS_API_KEY / OPENALEX_EMAIL secrets), the API URL and rate-limit constants,
+the normalization maps (DOCTYPE_MAPPINGS, OA_STATUS_MAPPINGS, LICENSE_URI_MAPPINGS,
+CC_LICENSE_NAMES), and the PDF heuristic tables (DOI_PDF_PATTERNS,
+DOMAIN_URL_TRANSFORMS). Also exposes __version__, the single source of truth for
+the package version.
+"""
 import os
 import sys
 import re

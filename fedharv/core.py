@@ -1,4 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+"""Pipeline orchestrator.
+
+HarvesterEngine.run() drives the stages end to end: discover (OpenAlex + Crossref,
+concurrent) -> deduplicate_and_merge -> per-item process_item (enrich, normalize
+and gate OA status, route to Items_With_PDF / Items_Only_Link / Green, fetch the
+PDF via the waterfall, finalize the SAF package) -> finalize reports and the
+author registry. Holds the thread pools and the named locks that guard shared
+state (STATS, the CSV, the RIS, the author DB).
+"""
 import os
 import re
 import sys

@@ -1,4 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+"""Output writers.
+
+map_to_dublin_core turns a harvested item into Dublin Core / OAIRE / organization
+/ person metadata; write_saf serializes that to a DSpace Simple Archive Format
+package (dublin_core.xml + metadata_*.xml + contents). generate_ris_block emits
+RIS citations and generate_import_scripts the DSpace import shell script.
+MetadataExporter manages the CSV harvest report, the publisher report, the RIS
+file, and the author registry.
+"""
 import os
 import csv
 import xml.etree.ElementTree as ET

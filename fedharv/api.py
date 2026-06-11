@@ -1,4 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+"""HTTP / external-API layer.
+
+APIClient owns the requests session (5xx retries + a polite User-Agent) and every
+external call: discovery via OpenAlex and Crossref (harvest_openalex /
+harvest_crossref, cursor-paginated) and per-item enrichment via Unpaywall,
+Crossref, Sherpa Romeo, DataCite and DOAJ (the fetch_* methods, cached on disk and
+rate-limited). Also provides rate_limited_get (ratelimit + backoff) and
+check_dspace_duplicate.
+"""
 import time
 import logging
 import requests

@@ -1,4 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+"""PDF discovery and download.
+
+PDFDownloader.fetch_pdf_with_waterfall runs the ordered waterfall (OpenAlex ->
+Unpaywall -> Crossref -> Scopus -> publisher heuristics -> HTML meta-scrape ->
+DOI heuristics); items that still fail are deferred to process_playwright_queue, a
+headless-Chromium fallback. apply_publisher_heuristics resolves PDF URLs from
+DOI_PDF_PATTERNS / DOMAIN_URL_TRANSFORMS and the optional, user-supplied
+learned_patterns.json.
+"""
 import os
 import re
 import time
