@@ -2,6 +2,7 @@
 import os
 import sys
 import re
+import logging
 import argparse
 import configparser
 import datetime
@@ -134,12 +135,12 @@ CC_LICENSE_NAMES = {
 def validate_date(date_str):
     """Ensure date is YYYY-MM-DD format."""
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        print(f"Error: Date '{date_str}' must be in YYYY-MM-DD format.")
+        logging.error(f"Date '{date_str}' must be in YYYY-MM-DD format.")
         sys.exit(1)
     try:
         datetime.datetime.strptime(date_str, '%Y-%m-%d')
     except ValueError:
-        print(f"Error: '{date_str}' is not a valid calendar date.")
+        logging.error(f"'{date_str}' is not a valid calendar date.")
         sys.exit(1)
 
 def resolve_output_dir_template(output_dir, start_date, end_date):
@@ -162,6 +163,20 @@ def resolve_output_dir_template(output_dir, start_date, end_date):
         expanded = expanded.replace(f"{{{key}}}", value)
         expanded = expanded.replace(f"[{key}]", value)
     return expanded
+
+def default_cache_dir():
+    """Return a persistent, per-user cache directory outside harvest output."""
+    if sys.platform == "win32":
+        base = os.getenv("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+        return os.path.join(base, "FedHarv", "cache")
+    base = os.getenv("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "fedharv")
+
+def default_author_registry_filename(target_affil):
+    """Generate a stable author registry filename from target affiliation."""
+    raw = (target_affil or "authors").strip().lower()
+    safe = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+    return f"{safe or 'authors'}_authors.txt"
 
 class ConfigManager:
     """Manages system configuration loading, dotenv integration, CLI args parsing."""
@@ -190,7 +205,7 @@ class ConfigManager:
         self.config.optionxform = str # Preserve case
         
         if not os.path.exists(config_file):
-            print(f"CRITICAL: Configuration file '{config_file}' not found.")
+            logging.error(f"Configuration file '{config_file}' not found.")
             sys.exit(1)
             
         self.config.read(config_file)
@@ -214,28 +229,42 @@ class ConfigManager:
             self.EMAIL_CONTACT = self.config.get('General', 'Email', fallback=self.ENV_OPENALEX_EMAIL or '')
             if not self.EMAIL_CONTACT:
                 # OpenAlex requires an email to use their polite pool
-                print("WARNING: Email contact not provided in config or env. Some APIs may limit access.")
+                logging.warning("Email contact not provided in config or env. Some APIs may limit access.")
             
             raw_output_dir = self.config.get('General', 'OutputDir', fallback='FedHarv_Output')
             self.OUTPUT_DIR = resolve_output_dir_template(raw_output_dir, self.START_DATE, self.END_DATE)
-            self.CACHE_DIR = os.path.join(self.OUTPUT_DIR, "cache")
+            raw_cache_dir = self.config.get('General', 'CacheDir', fallback=default_cache_dir())
+            self.CACHE_DIR = resolve_output_dir_template(raw_cache_dir, self.START_DATE, self.END_DATE)
             
             self.CHECK_DSPACE = self.config.getboolean('DSpace', 'CheckDuplicates', fallback=False)
             self.DSPACE_API = self.config.get('DSpace', 'ApiUrl', fallback='')
-            self.DSPACE_EMAIL = self.config.get('DSpace', 'AdminEmail', fallback='admin@uwindsor.ca')
+            self.DSPACE_EMAIL = self.config.get('DSpace', 'AdminEmail', fallback='admin@example.org')
             self.DSPACE_BIN = self.config.get('DSpace', 'BinPath', fallback='/dspace/bin/dspace')
+            self.DEFAULT_COLLECTION_HANDLE = self.config.get('DSpace', 'DefaultCollectionHandle', fallback='123456789/0')
             self.CROSSREF_TOKEN = self.config.get('Authentication', 'CrossrefPlusToken', fallback='')
+            self.AUTHOR_REGISTRY_FILE = self.config.get(
+                'General',
+                'AuthorRegistryFile',
+                fallback=default_author_registry_filename(self.TARGET_AFFIL)
+            )
             
             self.UNIT_MAP = {}
             if 'Mappings' in self.config:
                 for key, val in self.config.items('Mappings'):
                     self.UNIT_MAP[key.lower()] = val
+
+            self.COLLECTION_MAP = {}
+            if 'Collections' in self.config:
+                for key, val in self.config.items('Collections'):
+                    key_clean = key.strip().lower()
+                    handle = val.strip()
+                    if key_clean and handle:
+                        self.COLLECTION_MAP[key_clean] = handle
         except configparser.NoOptionError as e:
-            print(f"Configuration Error: Missing required setting - {e}")
+            logging.error(f"Configuration Error: Missing required setting - {e}")
             sys.exit(1)
         except Exception as e:
-            print(f"Configuration Error: {e}")
+            logging.error(f"Configuration Error: {e}")
             sys.exit(1)
         
-        if not os.path.exists(self.CACHE_DIR):
-            os.makedirs(self.CACHE_DIR, exist_ok=True)
+        os.makedirs(self.CACHE_DIR, exist_ok=True)

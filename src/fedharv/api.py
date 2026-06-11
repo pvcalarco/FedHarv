@@ -153,7 +153,6 @@ class APIClient:
             except Exception as e:
                 logging.error(f"CrossRef Fetch Error for {doi}: {e}")
                 return {}
-        return {}
 
     @cached_api_call("sherpa")
     @safe_call(default=None, log_errors=True)

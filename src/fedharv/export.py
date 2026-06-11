@@ -8,7 +8,7 @@ from collections import defaultdict
 from .config import CC_LICENSE_NAMES
 from .utils import clean_text, sanitize_filename, clean_abstract
 
-def map_to_dublin_core(item, enrich, all_affils, windsor_orcids):
+def map_to_dublin_core(item, enrich, all_affils, paper_orcids):
     md = [] 
     def add(s, e, q, v):
         if v: md.append({'schema': s, 'element': e, 'qualifier': q, 'value': clean_text(v)})
@@ -51,7 +51,7 @@ def map_to_dublin_core(item, enrich, all_affils, windsor_orcids):
     for auth in item.get('norm_authors', []): 
         if isinstance(auth, dict): add('dc', 'contributor', 'author', auth.get('name'))
         else: add('dc', 'contributor', 'author', auth)
-    for oid in windsor_orcids: add('person', 'identifier', 'orcid', oid)
+    for oid in paper_orcids: add('person', 'identifier', 'orcid', oid)
     
     add('oaire', 'citation', 'title', item.get('journal'))
     if item.get('volume'): add('oaire', 'citation', 'volume', item['volume'])
@@ -91,22 +91,18 @@ def write_saf(metadata, item_dir, bitstream_file):
     if bitstream_file:
         with open(os.path.join(item_dir, 'contents'), 'w', encoding='utf-8') as f: f.write(bitstream_file)
 
-def generate_import_scripts(base_dir, dspace_bin, dspace_email):
+def generate_import_scripts(base_dir, dspace_bin, dspace_email, collection_map=None, default_collection_handle='123456789/0'):
+    collection_map = collection_map or {}
     script_file = os.path.join(base_dir, "import_batch.sh")
     with open(script_file, 'w') as f:
         f.write("#!/bin/bash\n\n")
         for root, dirs, files in os.walk(base_dir):
             if any(fl == "dublin_core.xml" for fl in files): continue
             if any(d.startswith("item_") for d in dirs):
+                 dept_key = os.path.basename(root).strip().lower()
+                 collection_handle = collection_map.get(dept_key, default_collection_handle)
                  f.write(f"echo 'Importing: {root}'\n")
-                 f.write(f"{dspace_bin} import --add --eperson={dspace_email} --collection=123456789/0 --source={root} --mapfile=mapfile_{sanitize_filename(root)}\n\n")
-
-def write_report(filepath, row):
-    exists = os.path.isfile(filepath)
-    with open(filepath, 'a', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=['DOI', 'Title', 'ISSN', 'Doc_Type', 'Source', 'Folder_Type', 'Dept', 'PDF_Status', 'PDF_Source', 'Sherpa_Policy', 'OA_Status', 'Notes'])
-        if not exists: w.writeheader()
-        w.writerow(row)
+                 f.write(f"{dspace_bin} import --add --eperson={dspace_email} --collection={collection_handle} --source={root} --mapfile=mapfile_{sanitize_filename(root)}\n\n")
 
 def generate_ris_block(item, enrich):
     dt = item.get('doctype', 'Article').lower()
@@ -156,13 +152,14 @@ def generate_ris_block(item, enrich):
 
 
 class MetadataExporter:
-    """Manages writing harvested data to CSV reports, RIS blocks, DSpace import packages (SAF), and Windsor author lists."""
-    def __init__(self, output_dir, csv_file, ris_file, author_file, publisher_report_file):
+    """Manages writing harvested data to CSV reports, RIS blocks, DSpace import packages (SAF), and author registries."""
+    def __init__(self, output_dir, csv_file, ris_file, author_file, publisher_report_file, institution_name):
         self.output_dir = output_dir
         self.csv_file = csv_file
         self.ris_file = ris_file
         self.author_file = author_file
         self.publisher_report_file = publisher_report_file
+        self.institution_name = institution_name
         self.csv_handle = None
         self.csv_writer = None
         self.ris_handle = None
@@ -200,10 +197,11 @@ class MetadataExporter:
                 for pub, count in pubs.most_common():
                     w.writerow([dept, pub, count])
 
-    def generate_author_registry(self, windsor_author_db):
+    def generate_author_registry(self, author_db):
         with open(self.author_file, 'w', encoding='utf-8') as af:
-            af.write("Windsor Author Registry\n=======================\n")
-            for name, data in sorted(windsor_author_db.items()):
+            af.write(f"{self.institution_name} Author Registry\n")
+            af.write("=" * (len(self.institution_name) + 16) + "\n")
+            for name, data in sorted(author_db.items()):
                 depts = "; ".join(sorted(data['depts'])) if data['depts'] else "Unknown"
                 emails = ", ".join(sorted([e for e in data['emails'] if e])) if data['emails'] else "N/A"
                 orcids = ", ".join(sorted([o for o in data['orcids'] if o])) if data['orcids'] else "N/A"

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import os
+import re
 import sys
 import time
 import shutil
@@ -31,10 +32,35 @@ def robust_cleanup(path):
             shutil.rmtree(path)
             return
         except Exception as e:
-            print(f"Cleanup Warning: Could not delete {path} (Attempt {i+1}/5). Is a PDF open? {e}")
+            logging.warning(f"Cleanup Warning: Could not delete {path} (Attempt {i+1}/5). Is a PDF open? {e}")
             time.sleep(2)
-    print(f"CRITICAL ERROR: Failed to clean output directory {path}. Please close open files.")
+    logging.error(f"CRITICAL ERROR: Failed to clean output directory {path}. Please close open files.")
     sys.exit(1)
+
+def robust_cleanup_output_dir(output_dir, preserve_path=None):
+    """Clean output directory while optionally preserving a nested path (e.g., cache)."""
+    if not os.path.exists(output_dir):
+        return
+
+    if not preserve_path:
+        robust_cleanup(output_dir)
+        return
+
+    output_abs = os.path.abspath(output_dir)
+    preserve_abs = os.path.abspath(preserve_path)
+    prefix = output_abs + os.sep
+    if not (preserve_abs == output_abs or preserve_abs.startswith(prefix)):
+        robust_cleanup(output_dir)
+        return
+
+    for entry in os.listdir(output_dir):
+        candidate = os.path.abspath(os.path.join(output_dir, entry))
+        if preserve_abs == candidate or preserve_abs.startswith(candidate + os.sep):
+            continue
+        if os.path.isdir(candidate):
+            robust_cleanup(candidate)
+        else:
+            robust_remove_file(candidate)
 
 def robust_remove_file(path):
     if not os.path.exists(path): return
@@ -74,7 +100,8 @@ class HarvesterEngine:
             csv_file=self.csv_file,
             ris_file=self.ris_file,
             author_file=self.author_file,
-            publisher_report_file=self.publisher_report_file
+            publisher_report_file=self.publisher_report_file,
+            institution_name=self.config.TARGET_AFFIL
         )
         
         self.locks = {
@@ -102,7 +129,7 @@ class HarvesterEngine:
             'enriched_datacite': 0, 'enriched_orcid': 0, 'enriched_doaj': 0,
             'dept_breakdown': defaultdict(Counter),
             'dept_publisher_breakdown': defaultdict(Counter),
-            'windsor_author_db': defaultdict(lambda: {'depts': set(), 'emails': set(), 'orcids': set()}),
+            'author_db': defaultdict(lambda: {'depts': set(), 'emails': set(), 'orcids': set()}),
         }
         
         safe_start = self.config.START_DATE.replace('-', '')
@@ -112,19 +139,21 @@ class HarvesterEngine:
         self.csv_file = os.path.join(self.config.OUTPUT_DIR, csv_filename)
         
         self.ris_file = os.path.join(self.config.OUTPUT_DIR, "citations.ris") 
-        self.author_file = os.path.join(self.config.OUTPUT_DIR, "windsor_authors.txt")
+        self.author_file = os.path.join(self.config.OUTPUT_DIR, self.config.AUTHOR_REGISTRY_FILE)
         self.publisher_report_file = os.path.join(self.config.OUTPUT_DIR, "department_publisher_report.csv")
 
     def increment_stat(self, stat_name, amount=1):
         with self.locks['stats']:
-            if isinstance(self.STATS[stat_name], Counter):
-                # For counters (this shouldn't normally be called directly with increment_stat, but just in case)
-                pass
+            current = self.STATS.get(stat_name)
+            if isinstance(current, Counter):
+                return
+            if current is None:
+                self.STATS[stat_name] = amount
             else:
                 self.STATS[stat_name] += amount
 
     def discover(self):
-        print(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.config.START_DATE} to {self.config.END_DATE}...")
+        logging.info(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.config.START_DATE} to {self.config.END_DATE}...")
         
         def run_oa():
             return self.api_client.harvest_openalex(
@@ -210,14 +239,14 @@ class HarvesterEngine:
         return results['cr'], results['upw'], results['sherpa'], results['dc'], results['doaj']
 
     def extract_authors(self, item, cr):
-        target_check = "windsor"
+        target_affil = self.config.TARGET_AFFIL
         def reg(name, orcid=None, dept=None, email=None):
             if not name: return
             if "," not in name and " " in name: 
                 parts = name.split()
                 name = f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
             with self.locks['author']:
-                entry = self.STATS['windsor_author_db'][name]
+                entry = self.STATS['author_db'][name]
                 if orcid: entry['orcids'].add(orcid)
                 if dept: entry['depts'].add(dept)
                 if email: entry['emails'].add(email)
@@ -225,47 +254,63 @@ class HarvesterEngine:
         
         if item['source'] == 'openalex':
             for ship in ensure_list_of_dicts(deep_get(item, ['raw', 'authorships'])):
-                is_windsor = False
+                is_target = False
                 dept_found = None
+                inst_names = []
                 for inst in ensure_list_of_dicts(ship.get('institutions')):
-                    if target_check in inst.get('display_name', '').lower(): is_windsor = True
-                if is_windsor:
+                    display_name = inst.get('display_name')
+                    if display_name:
+                        inst_names.append(display_name)
+                if affiliation_matches_target(inst_names, target_affil):
+                    is_target = True
+                if is_target:
                     raw_aff = ship.get('raw_affiliation_string', '')
                     if raw_aff:
-                        match = re.search(r'(Department of [^,]+|School of [^,]+|Faculty of [^,]+)', raw_aff, re.IGNORECASE) if 're' in sys.modules else None
-                        # Wait, we need to import re!
-                        import re
                         match = re.search(r'(Department of [^,]+|School of [^,]+|Faculty of [^,]+)', raw_aff, re.IGNORECASE)
                         if match: dept_found = match.group(1).strip()
                     reg(deep_get(ship, ['author', 'display_name']), deep_get(ship, ['author', 'orcid']).replace('https://orcid.org/', '') if deep_get(ship, ['author', 'orcid']) else None, dept_found, None)
 
         if cr and cr.get('raw_message'):
             for auth in ensure_list_of_dicts(deep_get(cr, ['raw_message', 'author'])):
-                is_windsor = False
+                is_target = False
                 dept_found = None
+                aff_names = []
                 for aff in ensure_list_of_dicts(auth.get('affiliation')):
-                    if target_check in aff.get('name', '').lower(): 
-                        is_windsor = True
-                        dept_found = aff.get('name')
+                    aff_name = aff.get('name')
+                    if aff_name:
+                        aff_names.append(aff_name)
+                        dept_found = aff_name
 
-                if is_windsor:
+                if affiliation_matches_target(aff_names, target_affil):
+                    is_target = True
+
+                if is_target:
                     reg(f"{auth.get('family')}, {auth.get('given')}", auth.get('ORCID').replace('http://orcid.org/','').replace('https://orcid.org/','') if auth.get('ORCID') else None, dept_found, None)
 
     def get_paper_orcids(self, item, cr):
         orcids = set()
+        target_affil = self.config.TARGET_AFFIL
         if item['source'] == 'openalex':
              for ship in ensure_list_of_dicts(deep_get(item, ['raw', 'authorships'])):
+                  inst_names = []
                   for inst in ensure_list_of_dicts(ship.get('institutions')):
-                        if "windsor" in inst.get('display_name', '').lower():
-                             oid = deep_get(ship, ['author', 'orcid'])
-                             if oid: orcids.add(oid.replace('https://orcid.org/', ''))
+                        display_name = inst.get('display_name')
+                        if display_name:
+                             inst_names.append(display_name)
+                  if affiliation_matches_target(inst_names, target_affil):
+                       oid = deep_get(ship, ['author', 'orcid'])
+                       if oid: orcids.add(oid.replace('https://orcid.org/', ''))
         
         if cr and cr.get('raw_message'):
              for auth in ensure_list_of_dicts(deep_get(cr, ['raw_message', 'author'])):
+                  aff_names = []
                   for aff in ensure_list_of_dicts(auth.get('affiliation')):
-                        if "windsor" in aff.get('name', '').lower():
-                             if auth.get('ORCID'): 
-                                 orcids.add(auth.get('ORCID').replace('http://orcid.org/','').replace('https://orcid.org/',''))
+                        aff_name = aff.get('name')
+                        if aff_name:
+                             aff_names.append(aff_name)
+                  if affiliation_matches_target(aff_names, target_affil):
+                       if auth.get('ORCID'):
+                            orcids.add(auth.get('ORCID').replace('http://orcid.org/','').replace('https://orcid.org/',''))
         return list(orcids)
 
     def process_item(self, idx, item):
@@ -463,20 +508,20 @@ class HarvesterEngine:
                 self.metadata_exporter.write_ris_entry(item, enrich)
 
         with self.locks['print']: 
-            print(f"[{idx}] {item['title'][:40]}... -> {target_folder}")
+            logging.info(f"[{idx}] {item['title'][:40]}... -> {target_folder}")
 
     def process_items(self, final_list):
         self.metadata_exporter.open_handles()
         self.playwright_queue = []
 
-        print(f"Processing {len(final_list)} unique items with 15 threads...")
+        logging.info(f"Processing {len(final_list)} unique items with 15 threads...")
         with ThreadPoolExecutor(max_workers=15) as executor:
             futures = [executor.submit(self.process_item, idx, item) for idx, item in enumerate(final_list)]
             for f in as_completed(futures):
                 pass
 
         if self.playwright_queue:
-            print(f"Processing {len(self.playwright_queue)} items via Playwright fallback...")
+            logging.info(f"Processing {len(self.playwright_queue)} items via Playwright fallback...")
             self.pdf_downloader.process_playwright_queue(self.playwright_queue, self.finalize_item)
 
         self.metadata_exporter.close_handles()
@@ -486,14 +531,17 @@ class HarvesterEngine:
         self.metadata_exporter.generate_publisher_report(self.STATS['dept_publisher_breakdown'])
 
     def generate_summary(self):
-        print(f"\n--- HARVEST COMPLETE ---\nUnique Items: {len(self.STATS['dept_breakdown'])}\nPDFs: {self.STATS['pdf_success']}\nSources: {dict(self.STATS['pdf_sources'])}")
+        logging.info(
+            f"HARVEST COMPLETE | Unique Depts: {len(self.STATS['dept_breakdown'])} | "
+            f"PDFs: {self.STATS['pdf_success']} | Sources: {dict(self.STATS['pdf_sources'])}"
+        )
         try:
             with open(os.path.join(self.config.OUTPUT_DIR, "harvest_summary.txt"), 'w', encoding='utf-8') as f: 
                 f.write(str(self.STATS))
         except Exception: 
             pass
         
-        self.metadata_exporter.generate_author_registry(self.STATS['windsor_author_db'])
+        self.metadata_exporter.generate_author_registry(self.STATS['author_db'])
 
     def cleanup_empty_item_dirs(self):
         """Remove stale empty item_* directories from prior interrupted runs."""
@@ -540,17 +588,32 @@ class HarvesterEngine:
         if removed:
             logging.info(f"Pruned {removed} empty output directories after harvest.")
 
-    def run(self):
-        robust_cleanup(self.config.OUTPUT_DIR)
-        os.makedirs(self.config.OUTPUT_DIR, exist_ok=True)
-        self.cleanup_empty_item_dirs()
-        
-        # Initialize empty RIS file
-        with open(self.ris_file, 'w', encoding='utf-8') as f: 
-            pass
+    def run(self, dry_run=False, resume=False):
+        if resume:
+            logging.info("Resume mode enabled: preserving existing output directory content.")
+            os.makedirs(self.config.OUTPUT_DIR, exist_ok=True)
+        else:
+            robust_cleanup_output_dir(self.config.OUTPUT_DIR, preserve_path=self.config.CACHE_DIR)
+            os.makedirs(self.config.OUTPUT_DIR, exist_ok=True)
+            self.cleanup_empty_item_dirs()
 
-        generate_import_scripts(self.config.OUTPUT_DIR, self.config.DSPACE_BIN, self.config.DSPACE_EMAIL)
+            # Initialize empty RIS file for fresh run
+            with open(self.ris_file, 'w', encoding='utf-8') as f:
+                pass
+
+        generate_import_scripts(
+            self.config.OUTPUT_DIR,
+            self.config.DSPACE_BIN,
+            self.config.DSPACE_EMAIL,
+            collection_map=self.config.COLLECTION_MAP,
+            default_collection_handle=self.config.DEFAULT_COLLECTION_HANDLE
+        )
 
         oa_list, cr_list = self.discover()
         final_list = self.deduplicate_and_merge(oa_list, cr_list)
+
+        if dry_run:
+            logging.info(f"Dry-run mode: discovery complete with {len(final_list)} unique candidate items. No output files were written.")
+            return
+
         self.process_items(final_list)
