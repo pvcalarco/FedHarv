@@ -54,7 +54,7 @@ The result is a DSpace-ready output bundle with consistent metadata and import h
 - **Multi-tier Waterfall**: OpenAlex → Unpaywall → CrossRef TDM → Scopus API (Elsevier) → Heuristics → HTML Meta-Scraper → DOI Heuristics.
 - **Publisher-Specific Rules**: 25+ publisher-specific URL transformation patterns.
 - **DOI-Based Heuristics**: Automatic PDF URL generation from DOI prefixes.
-- **Browser Automation Fallback**: Playwright browser automation to scrape dynamic landing pages and handle complex Javascript PDF downloads.
+- **Browser Automation Fallback**: Playwright browser automation to scrape dynamic landing pages and handle complex JavaScript PDF downloads.
 - **Pattern Support**: Optional publisher pattern loading from `learned_patterns.json` (read at startup).
 
 ### 🏗️ **Output Management**
@@ -124,7 +124,7 @@ FedHarv/
 5. **`export.py` (`MetadataExporter`)**
    - Implements Dublin Core schema mapper (`map_to_dublin_core`).
    - Generates SAF XML packages (`dublin_core.xml`, `metadata_oaire.xml`, `contents`).
-   - Outputs reports: CSV log files, RIS citation records, Windsor author registries, and publisher breakdowns.
+   - Outputs reports: CSV log files, RIS citation records, institution author registries, and publisher breakdowns.
    - Creates DSpace shell batch import scripts.
 
 6. **`core.py` (`HarvesterEngine`)**
@@ -250,7 +250,7 @@ For integrations or wrappers, instantiate the engine directly:
 ```python
 from fedharv import HarvesterEngine
 
-harvester = HarvesterEngine(config_path="config.ini")
+harvester = HarvesterEngine(config_path="src/config.ini")
 harvester.run()
 ```
 
