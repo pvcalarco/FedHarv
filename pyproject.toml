@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fedharv"
+version = "1.0.1"
+description = "Federated open-access harvester that packages scholarly articles as DSpace Simple Archive Format (SAF)."
+readme = "README.FedHarv.md"
+requires-python = ">=3.9"
+license = { text = "AGPL-3.0-only" }
+authors = [{ name = "Pascal V. Calarco", email = "pcalarco@uwindsor.ca" }]
+dependencies = [
+    "requests>=2.31",
+    "urllib3>=2.0",
+    "ratelimit>=2.2",
+    "backoff>=2.2",
+    "python-dotenv>=1.0",
+    "playwright>=1.40",
+]
+
+[project.scripts]
+fedharv = "fedharv:main"
+
+[tool.setuptools]
+packages = ["fedharv"]

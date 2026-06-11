@@ -1,0 +1,17 @@
+# Byte-compiled / cached
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging / build
+*.egg-info/
+build/
+dist/
+
+# Local config & secrets (templates are committed as *.example.*)
+.env
+config.ini
