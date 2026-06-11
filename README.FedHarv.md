@@ -56,7 +56,7 @@ The system is designed for institutional repositories and digital libraries that
 - **Publisher-Specific Rules**: 25+ publisher-specific URL transformation patterns.
 - **DOI-Based Heuristics**: Automatic PDF URL generation from DOI prefixes.
 - **Browser Automation Fallback**: Playwright browser automation to scrape dynamic landing pages and handle complex Javascript PDF downloads.
-- **Learning System**: Adaptive pattern recognition for new publishers stored in `learned_patterns.json`.
+- **Custom PDF Patterns** *(optional)*: Supply your own publisher rules in `learned_patterns.json` — a `DOI-prefix → URL template` map using `{doi}`/`{doi_suffix}` placeholders. It is loaded at startup and tried ahead of the built-in heuristics. Patterns are user-supplied (hand-authored), not automatically learned.
 
 ### 🏗️ **Output Management**
 
@@ -82,7 +82,7 @@ FedHarv is structured as a modular Python package divided into separate layers o
 ```
 FedHarv/
 ├── run_harvester.py         # Entrypoint script
-├── learned_patterns.json    # Adaptive pattern memory
+├── learned_patterns.json    # optional user-supplied PDF URL patterns (DOI-prefix → template)
 ├── config.ini               # User configurations
 ├── fedharv/                 # Package directory
 │   ├── __init__.py          # Exposes the main HarvesterEngine
