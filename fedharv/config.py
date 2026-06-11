@@ -5,7 +5,10 @@ import re
 import argparse
 import configparser
 import datetime
+import logging
 from dotenv import load_dotenv
+
+__version__ = "1.0.1"
 
 # API URL Constants
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
@@ -134,12 +137,12 @@ CC_LICENSE_NAMES = {
 def validate_date(date_str):
     """Ensure date is YYYY-MM-DD format."""
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        print(f"Error: Date '{date_str}' must be in YYYY-MM-DD format.")
+        logging.error(f"Date '{date_str}' must be in YYYY-MM-DD format.")
         sys.exit(1)
     try:
         datetime.datetime.strptime(date_str, '%Y-%m-%d')
     except ValueError:
-        print(f"Error: '{date_str}' is not a valid calendar date.")
+        logging.error(f"'{date_str}' is not a valid calendar date.")
         sys.exit(1)
 
 def resolve_output_dir_template(output_dir, start_date, end_date):
@@ -190,7 +193,7 @@ class ConfigManager:
         self.config.optionxform = str # Preserve case
         
         if not os.path.exists(config_file):
-            print(f"CRITICAL: Configuration file '{config_file}' not found.")
+            logging.critical(f"Configuration file '{config_file}' not found.")
             sys.exit(1)
             
         self.config.read(config_file)
@@ -214,7 +217,7 @@ class ConfigManager:
             self.EMAIL_CONTACT = self.config.get('General', 'Email', fallback=self.ENV_OPENALEX_EMAIL or '')
             if not self.EMAIL_CONTACT:
                 # OpenAlex requires an email to use their polite pool
-                print("WARNING: Email contact not provided in config or env. Some APIs may limit access.")
+                logging.warning("Email contact not provided in config or env. Some APIs may limit access.")
             
             raw_output_dir = self.config.get('General', 'OutputDir', fallback='FedHarv_Output')
             self.OUTPUT_DIR = resolve_output_dir_template(raw_output_dir, self.START_DATE, self.END_DATE)
@@ -243,10 +246,10 @@ class ConfigManager:
                 for key, val in self.config.items('Collections'):
                     self.COLLECTIONS[key] = val
         except configparser.NoOptionError as e:
-            print(f"Configuration Error: Missing required setting - {e}")
+            logging.error(f"Configuration error: missing required setting - {e}")
             sys.exit(1)
         except Exception as e:
-            print(f"Configuration Error: {e}")
+            logging.error(f"Configuration error: {e}")
             sys.exit(1)
         
         if not os.path.exists(self.CACHE_DIR):

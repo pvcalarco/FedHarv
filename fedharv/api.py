@@ -9,6 +9,7 @@ from ratelimit import limits, sleep_and_retry
 import backoff
 
 from .config import (
+    __version__,
     CALLS, RATE_LIMIT_PERIOD,
     OPENALEX_WORKS_URL, OPENALEX_INST_URL,
     UNPAYWALL_API, SHERPA_API_URL,
@@ -72,7 +73,7 @@ class APIClient:
         
         self.HEADERS = {
             "Accept": "application/json", 
-            "User-Agent": f"SAF-Harvester/16.1 (mailto:{self.config.EMAIL_CONTACT})" 
+            "User-Agent": f"FedHarv/{__version__} (mailto:{self.config.EMAIL_CONTACT})"
         }
         if self.config.CROSSREF_TOKEN:
             self.HEADERS["Crossref-Plus-API-Token"] = f"Bearer {self.config.CROSSREF_TOKEN}"
@@ -154,7 +155,6 @@ class APIClient:
             except Exception as e:
                 logging.error(f"CrossRef Fetch Error for {doi}: {e}")
                 return {}
-        return {}
 
     @cached_api_call("sherpa")
     @safe_call(default=None, log_errors=True)

@@ -1,7 +1,8 @@
 # FedHarv modular package
 from .core import HarvesterEngine
+from .config import __version__
 
-__all__ = ["HarvesterEngine", "main"]
+__all__ = ["HarvesterEngine", "main", "__version__"]
 
 
 def main():

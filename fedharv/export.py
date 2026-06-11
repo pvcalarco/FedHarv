@@ -102,13 +102,6 @@ def generate_import_scripts(base_dir, dspace_bin, dspace_email, collections=None
                  f.write(f"echo 'Importing: {root}'\n")
                  f.write(f"{dspace_bin} import --add --eperson={dspace_email} --collection={handle} --source={root} --mapfile=mapfile_{sanitize_filename(root)}\n\n")
 
-def write_report(filepath, row):
-    exists = os.path.isfile(filepath)
-    with open(filepath, 'a', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=['DOI', 'Title', 'ISSN', 'Doc_Type', 'Source', 'Folder_Type', 'Dept', 'PDF_Status', 'PDF_Source', 'Sherpa_Policy', 'OA_Status', 'Notes'])
-        if not exists: w.writeheader()
-        w.writerow(row)
-
 def generate_ris_block(item, enrich):
     dt = item.get('doctype', 'Article').lower()
     ty = "JOUR" # Default

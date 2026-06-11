@@ -30,3 +30,9 @@ def test_package_exposes_engine_and_main():
 
     assert hasattr(fedharv, "HarvesterEngine")
     assert callable(fedharv.main)
+
+
+def test_package_exposes_version():
+    import fedharv
+
+    assert isinstance(fedharv.__version__, str) and fedharv.__version__

@@ -8,7 +8,6 @@ import logging
 import threading
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import concurrent.futures
 
 from .config import ConfigManager
 from .api import APIClient, check_dspace_duplicate
@@ -32,9 +31,9 @@ def robust_cleanup(path):
             shutil.rmtree(path)
             return
         except Exception as e:
-            print(f"Cleanup Warning: Could not delete {path} (Attempt {i+1}/5). Is a PDF open? {e}")
+            logging.warning(f"Could not delete {path} (attempt {i+1}/5). Is a PDF open? {e}")
             time.sleep(2)
-    print(f"CRITICAL ERROR: Failed to clean output directory {path}. Please close open files.")
+    logging.critical(f"Failed to clean output directory {path}. Please close open files.")
     sys.exit(1)
 
 def robust_remove_file(path):
@@ -87,7 +86,11 @@ class HarvesterEngine:
         }
 
     def setup_logging(self):
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[logging.StreamHandler(), logging.FileHandler("fedharv.log", encoding="utf-8")],
+        )
 
     def init_stats(self):
         self.STATS = {
@@ -118,14 +121,12 @@ class HarvesterEngine:
 
     def increment_stat(self, stat_name, amount=1):
         with self.locks['stats']:
-            if isinstance(self.STATS[stat_name], Counter):
-                # For counters (this shouldn't normally be called directly with increment_stat, but just in case)
-                pass
-            else:
+            # Counters are updated directly elsewhere; this path is for scalar stats only.
+            if not isinstance(self.STATS[stat_name], Counter):
                 self.STATS[stat_name] += amount
 
     def discover(self):
-        print(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.config.START_DATE} to {self.config.END_DATE}...")
+        logging.info(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.config.START_DATE} to {self.config.END_DATE}...")
         
         def run_oa():
             return self.api_client.harvest_openalex(
@@ -460,20 +461,20 @@ class HarvesterEngine:
                 self.metadata_exporter.write_ris_entry(item, enrich)
 
         with self.locks['print']: 
-            print(f"[{idx}] {item['title'][:40]}... -> {target_folder}")
+            logging.info(f"[{idx}] {item['title'][:40]}... -> {target_folder}")
 
     def process_items(self, final_list):
         self.metadata_exporter.open_handles()
         self.playwright_queue = []
 
-        print(f"Processing {len(final_list)} unique items with 15 threads...")
+        logging.info(f"Processing {len(final_list)} unique items with 15 threads...")
         with ThreadPoolExecutor(max_workers=15) as executor:
             futures = [executor.submit(self.process_item, idx, item) for idx, item in enumerate(final_list)]
             for f in as_completed(futures):
                 pass
 
         if self.playwright_queue:
-            print(f"Processing {len(self.playwright_queue)} items via Playwright fallback...")
+            logging.info(f"Processing {len(self.playwright_queue)} items via Playwright fallback...")
             self.pdf_downloader.process_playwright_queue(self.playwright_queue, self.finalize_item)
 
         self.metadata_exporter.close_handles()
@@ -483,7 +484,7 @@ class HarvesterEngine:
         self.metadata_exporter.generate_publisher_report(self.STATS['dept_publisher_breakdown'])
 
     def generate_summary(self):
-        print(f"\n--- HARVEST COMPLETE ---\nUnique Items: {len(self.STATS['dept_breakdown'])}\nPDFs: {self.STATS['pdf_success']}\nSources: {dict(self.STATS['pdf_sources'])}")
+        logging.info(f"--- HARVEST COMPLETE --- Unique Items: {len(self.STATS['dept_breakdown'])}, PDFs: {self.STATS['pdf_success']}, Sources: {dict(self.STATS['pdf_sources'])}")
         try:
             with open(os.path.join(self.config.OUTPUT_DIR, "harvest_summary.txt"), 'w', encoding='utf-8') as f: 
                 f.write(str(self.STATS))
