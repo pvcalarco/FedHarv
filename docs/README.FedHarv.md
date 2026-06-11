@@ -56,7 +56,7 @@ The system is designed for institutional repositories and digital libraries that
 - **Publisher-Specific Rules**: 25+ publisher-specific URL transformation patterns.
 - **DOI-Based Heuristics**: Automatic PDF URL generation from DOI prefixes.
 - **Browser Automation Fallback**: Playwright browser automation to scrape dynamic landing pages and handle complex Javascript PDF downloads.
-- **Learning System**: Adaptive pattern recognition for new publishers stored in `learned_patterns.json`.
+- **Pattern Support**: Optional publisher pattern loading from `learned_patterns.json` (read at startup).
 
 ### 🏗️ **Output Management**
 
@@ -81,17 +81,21 @@ FedHarv is structured as a modular Python package divided into separate layers o
 
 ```
 FedHarv/
-├── run_harvester.py         # Entrypoint script
-├── learned_patterns.json    # Adaptive pattern memory
-├── config.ini               # User configurations
-├── fedharv/                 # Package directory
-│   ├── __init__.py          # Exposes the main HarvesterEngine
-│   ├── config.py            # CLI parser, dotenv loader, and config mappings
-│   ├── utils.py             # File, string helpers, and CacheManager
-│   ├── api.py               # Consolidated API Client (HTTP & sessions)
-│   ├── pdf.py               # PDF Downloader and Playwright fallback
-│   ├── export.py            # Dublin Core & SAF export utilities
-│   └── core.py              # HarvesterEngine orchestration logic
+├── docs/
+│   └── README.FedHarv.md
+├── src/
+│   ├── run_harvester.py              # Entrypoint script
+│   ├── config.example.FedHarv.ini    # Config template
+│   ├── config.ini                    # Local runtime config (optional)
+│   ├── process_zotero_pdfs.py
+│   └── fedharv/                      # Package directory
+│       ├── __init__.py
+│       ├── config.py
+│       ├── utils.py
+│       ├── api.py
+│       ├── pdf.py
+│       ├── export.py
+│       └── core.py
 ```
 
 ### Module Responsibilities
@@ -157,7 +161,7 @@ pip install -r requirements.txt
 playwright install chromium
 
 # Copy config template
-cp config.example.FedHarv.ini config.ini
+cp src/config.example.FedHarv.ini src/config.ini
 ```
 
 ---
@@ -218,16 +222,26 @@ chemistry = Faculty_of_Science_Chemistry_Biochemistry
 
 Execute the modular entrypoint script:
 ```bash
-python run_harvester.py
+python src/run_harvester.py --config src/config.ini
 ```
 To specify a custom configuration file:
 
 ```bash
-python run_harvester.py --config custom_config.ini
+python src/run_harvester.py --config path/to/custom_config.ini
 ```
 
-### Dagster Integration
-If using Dagster for pipeline automation, configure the run parameters to execute `HarvesterEngine` programmatic asset definitions. The new codebase natively supports programmatic instantiation:
+Useful runtime modes:
+
+```bash
+# Discover and deduplicate only; do not write output packages
+python src/run_harvester.py --config src/config.ini --dry-run
+
+# Resume without cleaning existing output tree
+python src/run_harvester.py --config src/config.ini --resume
+```
+
+### Programmatic Usage
+For integrations or wrappers, instantiate the engine directly:
 ```python
 from fedharv import HarvesterEngine
 
@@ -274,7 +288,7 @@ FedHarv_Output/
 ├── citations.ris                        # RIS block references for Items_Only_Link
 ├── harvest_report_YYYYMMDD_YYYYMMDD.csv # Comprehensive spreadsheet mapping
 ├── import_batch.sh                      # Shell DSpace importing utility
-├── windsor_authors.txt                  # Windsor author affiliation database
+├── <institution>_authors.txt            # Configurable author registry filename
 └── department_publisher_report.csv      # Departmental output counts
 ```
 
@@ -284,7 +298,7 @@ FedHarv_Output/
 
 - **Parallel Processing**: Uses a `ThreadPoolExecutor` with up to 15 parallel workers for metadata processing and waterfall downloads.
 - **Thread Safety**: Access to output files (CSV, RIS) and engine logs are safeguarded by individual thread locks.
-- **Dual-Layer Caching**: Shared cache dictionaries are held in memory and serialized locally to JSON in `OutputDir/cache/` to prevent redundant API queries.
+- **Dual-Layer Caching**: Shared cache dictionaries are held in memory and serialized locally to a persistent cache directory (`General.CacheDir`, defaults outside `OutputDir`).
 - **Rate-Limiting Compliance**: Handles 429 response limits gracefully with automatic backing-off and polite pool headers.
 
 ---
@@ -311,6 +325,6 @@ Contributions are welcome! Please follow these guidelines:
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the `GNU AFFERO GENERAL PUBLIC LICENSE.md` file for details.
 
 ---
-**Version**: 1.1 (Modular Release)  
+**Version**: 1.1.1  
 **Maintainer**: Pascal V. Calarco  
 **Contact**: pcalarco@uwindsor.ca
