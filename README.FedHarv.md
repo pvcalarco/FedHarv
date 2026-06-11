@@ -76,6 +76,12 @@ The system is designed for institutional repositories and digital libraries that
 
 ---
 
+## Documentation
+
+- **[USER_GUIDE.md](USER_GUIDE.md)** — install, configure, run a harvest, and import into DSpace.
+- **[DOCUMENTATION.md](DOCUMENTATION.md)** — architecture, the item pipeline, the full configuration reference, and output artifacts.
+- **[README.Zotero_Processor.md](README.Zotero_Processor.md)** — the Zotero PDF-backfill companion.
+
 ## Architecture & Modularization
 
 FedHarv is structured as a modular Python package divided into separate layers of concern:
