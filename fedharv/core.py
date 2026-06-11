@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import os
+import re
 import sys
 import time
 import shutil
@@ -232,9 +233,6 @@ class HarvesterEngine:
                 if is_windsor:
                     raw_aff = ship.get('raw_affiliation_string', '')
                     if raw_aff:
-                        match = re.search(r'(Department of [^,]+|School of [^,]+|Faculty of [^,]+)', raw_aff, re.IGNORECASE) if 're' in sys.modules else None
-                        # Wait, we need to import re!
-                        import re
                         match = re.search(r'(Department of [^,]+|School of [^,]+|Faculty of [^,]+)', raw_aff, re.IGNORECASE)
                         if match: dept_found = match.group(1).strip()
                     reg(deep_get(ship, ['author', 'display_name']), deep_get(ship, ['author', 'orcid']).replace('https://orcid.org/', '') if deep_get(ship, ['author', 'orcid']) else None, dept_found, None)
