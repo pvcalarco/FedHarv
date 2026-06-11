@@ -1,0 +1,4 @@
+# Development dependencies (UTF-8). Installs runtime deps + the test toolchain.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=7.0
