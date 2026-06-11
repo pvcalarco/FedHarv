@@ -319,10 +319,13 @@ class APIClient:
 
                     published_date = i.get('published-print', i.get('published-online', {}))
                     date_parts = published_date.get('date-parts', [[start_date[:4]]])[0]
-                    date_str = f"{date_parts[0]:04d}"
-                    if len(date_parts) > 1: date_str += f"-{date_parts[1]:02d}"
+                    year = int(str(date_parts[0])) if len(date_parts) > 0 and str(date_parts[0]).isdigit() else int(start_date[:4])
+                    month = int(str(date_parts[1])) if len(date_parts) > 1 and str(date_parts[1]).isdigit() else 1
+                    day = int(str(date_parts[2])) if len(date_parts) > 2 and str(date_parts[2]).isdigit() else 1
+                    date_str = f"{year:04d}"
+                    if len(date_parts) > 1: date_str += f"-{month:02d}"
                     else: date_str += "-01"
-                    if len(date_parts) > 2: date_str += f"-{date_parts[2]:02d}"
+                    if len(date_parts) > 2: date_str += f"-{day:02d}"
                     else: date_str += "-01"
 
                     results.append({
