@@ -12,6 +12,9 @@ env/
 build/
 dist/
 
+# FedHarv cross-run API cache (persists between runs; not source)
+.fedharv_cache/
+
 # Local config & secrets (templates are committed as *.example.*)
 .env
 config.ini

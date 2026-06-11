@@ -57,6 +57,7 @@ class APIClient:
     def __init__(self, config):
         self.config = config
         self.cache_dir = config.CACHE_DIR
+        self.cache_max_age = getattr(config, 'CACHE_MAX_AGE', None)
         self.setup_session()
 
     def setup_session(self):

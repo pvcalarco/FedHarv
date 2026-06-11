@@ -5,6 +5,7 @@ import json
 import logging
 import hashlib
 import threading
+import time
 from .config import DOCTYPE_MAPPINGS, OA_STATUS_MAPPINGS, LICENSE_URI_MAPPINGS
 
 cache_lock = threading.Lock()
@@ -36,7 +37,8 @@ def cached_api_call(cache_prefix, cache_dir_attr='cache_dir'):
                 return func(self, identifier, *args, **kwargs)
                 
             # Check cache first
-            cached = load_from_cache(cache_prefix, identifier, cache_dir)
+            max_age = getattr(self, 'cache_max_age', None)
+            cached = load_from_cache(cache_prefix, identifier, cache_dir, max_age)
             if cached is not None:
                 return cached
             
@@ -73,14 +75,16 @@ def get_cache_path(prefix, identifier, cache_dir):
     return os.path.join(cache_dir, f"{prefix}_{safe_id}.json")
 
 @safe_call(default=None, log_errors=False)
-def load_from_cache(prefix, identifier, cache_dir):
+def load_from_cache(prefix, identifier, cache_dir, max_age_seconds=None):
     cache_key = f"{prefix}_{identifier}"
     with cache_lock:
         if cache_key in MEMORY_CACHE:
             return MEMORY_CACHE[cache_key]
     path = get_cache_path(prefix, identifier, cache_dir)
     if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f: 
+        if max_age_seconds is not None and (time.time() - os.path.getmtime(path)) > max_age_seconds:
+            return None  # stale on-disk entry -> treat as a miss
+        with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             with cache_lock:
                 MEMORY_CACHE[cache_key] = data

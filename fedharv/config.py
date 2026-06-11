@@ -218,7 +218,10 @@ class ConfigManager:
             
             raw_output_dir = self.config.get('General', 'OutputDir', fallback='FedHarv_Output')
             self.OUTPUT_DIR = resolve_output_dir_template(raw_output_dir, self.START_DATE, self.END_DATE)
-            self.CACHE_DIR = os.path.join(self.OUTPUT_DIR, "cache")
+            # Cache lives OUTSIDE OUTPUT_DIR so it survives run()'s robust_cleanup() of the output tree.
+            self.CACHE_DIR = self.config.get('General', 'CacheDir', fallback='.fedharv_cache')
+            cache_days = self.config.getint('General', 'CacheMaxAgeDays', fallback=30)
+            self.CACHE_MAX_AGE = cache_days * 86400 if cache_days > 0 else None  # None = never expire
             
             self.CHECK_DSPACE = self.config.getboolean('DSpace', 'CheckDuplicates', fallback=False)
             self.DSPACE_API = self.config.get('DSpace', 'ApiUrl', fallback='')
