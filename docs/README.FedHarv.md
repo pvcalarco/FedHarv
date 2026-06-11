@@ -3,7 +3,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-A sophisticated, production-ready federated harvester for open access academic content. Designed to automatically discover, enrich, and harvest scholarly articles with PDF availability from multiple sources, it is structured as a clean, modular Python package.
+FedHarv is a modular harvester for open access scholarly content. It discovers, enriches, and packages records (with PDFs when available) for DSpace workflows.
 
 ## Table of Contents
 
@@ -13,7 +13,6 @@ A sophisticated, production-ready federated harvester for open access academic c
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [API Integration](#api-integration)
 - [PDF Discovery Pipeline](#pdf-discovery-pipeline)
 - [Output Structure](#output-structure)
 - [Technical Specifications](#technical-specifications)
@@ -23,7 +22,7 @@ A sophisticated, production-ready federated harvester for open access academic c
 
 ## Overview
 
-FedHarv is a comprehensive solution for harvesting open access scholarly content from multiple academic sources. It implements a sophisticated multi-stage pipeline that:
+FedHarv is designed for institutional repositories and digital libraries that need repeatable OA harvesting. Its pipeline:
 
 1. **Discovers** open access content using federated search across APIs (OpenAlex and CrossRef).
 2. **Enriches** metadata through cross-referencing multiple data sources.
@@ -31,7 +30,7 @@ FedHarv is a comprehensive solution for harvesting open access scholarly content
 4. **Locates** PDF files through a multi-tier waterfall approach.
 5. **Generates** DSpace-compatible SAF (Simple Archive Format) packages.
 
-The system is designed for institutional repositories and digital libraries that need to systematically harvest and preserve open access scholarly content.
+The result is a DSpace-ready output bundle with consistent metadata and import helpers.
 
 ## Key Features
 
@@ -181,9 +180,9 @@ SCOPUS_API_KEY=your-elsevier-scopus-key  # Optional: For Scopus PDF extraction
 CROSSREF_TOKEN=your-crossref-token
 ```
 
-### Configuration File (`config.ini`)
+### Configuration File (`src/config.ini`)
 
-Customize options in `config.ini`:
+Customize options in `src/config.ini`:
 
 ```ini
 [Search]
@@ -199,12 +198,18 @@ CrossrefPlusToken=
 [General]
 Email=pcalarco@uwindsor.ca
 OutputDir=FedHarv_Output
+CacheDir=C:/Users/<you>/AppData/Local/FedHarv/cache  # Optional persistent cache
+AuthorRegistryFile=your_institution_authors.txt      # Optional override
 
 [DSpace]
 CheckDuplicates=true
 ApiUrl=https://scholar.uwindsor.ca/server/api
 AdminEmail=admin@uwindsor.ca
 BinPath=/dspace/bin/dspace
+DefaultCollectionHandle=123456789/0
+
+[Collections]
+School_of_Computer_Science=123456789/10
 
 [Mappings]
 # Mappings map affiliations keywords to target folders
@@ -272,6 +277,7 @@ The output directory contains:
 
 ```
 FedHarv_Output/
+├── Green/                               # Unpaywall Green OA routed here
 ├── Items_With_PDF/                      # Successful downloads sorted by dept
 │   └── School_of_Computer_Science/
 │       └── item_001/
@@ -305,7 +311,7 @@ FedHarv_Output/
 
 ## Troubleshooting
 
-- Ensure `config.ini` and `.env` are present and correctly populated.
+- Ensure `src/config.ini` and `.env` are present and correctly populated.
 - If browser fallback fails, reinstall Playwright dependencies with `playwright install chromium`.
 - Verify API credentials (OpenAlex email, CrossRef token, Scopus key, Sherpa key) when metadata or PDF discovery is incomplete.
 
