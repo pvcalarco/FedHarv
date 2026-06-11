@@ -1,7 +1,12 @@
 """Unit tests for the pure builders in fedharv/export.py."""
 import pytest
 
-from fedharv.export import generate_ris_block, map_to_dublin_core
+from fedharv.export import (
+    MetadataExporter,
+    generate_import_scripts,
+    generate_ris_block,
+    map_to_dublin_core,
+)
 
 
 def _index(md):
@@ -24,7 +29,7 @@ def test_map_to_dublin_core_basic_fields():
         "journal": "Journal of Things",
         "norm_authors": [{"name": "Doe, Jane"}, "Smith, John"],
     }
-    md = _index(map_to_dublin_core(item, {}, all_affils=[], windsor_orcids=[]))
+    md = _index(map_to_dublin_core(item, {}, all_affils=[], target_orcids=[]))
 
     assert md[("dc", "title", None)] == ["A Study of Things"]
     assert md[("dc", "date", "issued")] == ["2023-05-01"]
@@ -129,3 +134,45 @@ def test_generate_ris_block_ty_by_doctype(doctype, ty):
     item = {"title": "X", "doctype": doctype, "journal": "J", "norm_authors": []}
     ris = generate_ris_block(item, {})
     assert ris.split("\n")[0] == f"TY  - {ty}"
+
+
+# --------------------------------------------------------------------------
+# generate_import_scripts — per-department DSpace collection handles
+# --------------------------------------------------------------------------
+def test_generate_import_scripts_uses_per_dept_collection(tmp_path):
+    (tmp_path / "Items_With_PDF" / "School_of_CS" / "item_001").mkdir(parents=True)
+    (tmp_path / "Items_With_PDF" / "Biology" / "item_001").mkdir(parents=True)
+
+    generate_import_scripts(
+        str(tmp_path),
+        "/dspace/bin/dspace",
+        "admin@example.org",
+        collections={"School_of_CS": "123456789/42"},
+        default_collection="123456789/0",
+    )
+
+    script = (tmp_path / "import_batch.sh").read_text()
+    assert "--collection=123456789/42" in script   # mapped department
+    assert "--collection=123456789/0" in script     # unmapped department -> default
+
+
+# --------------------------------------------------------------------------
+# generate_author_registry — no hardcoded institution name
+# --------------------------------------------------------------------------
+def test_generate_author_registry_header_is_institution_agnostic(tmp_path):
+    author_file = tmp_path / "author_registry.txt"
+    exporter = MetadataExporter(
+        output_dir=str(tmp_path),
+        csv_file=str(tmp_path / "report.csv"),
+        ris_file=str(tmp_path / "citations.ris"),
+        author_file=str(author_file),
+        publisher_report_file=str(tmp_path / "pub.csv"),
+    )
+    db = {"Doe, Jane": {"depts": {"School_of_CS"}, "emails": {"jane@example.org"}, "orcids": {"0000-0001"}}}
+
+    exporter.generate_author_registry(db, target_affil="University of Windsor")
+
+    text = author_file.read_text()
+    assert "Windsor Author Registry" not in text          # old hardcoded header is gone
+    assert "Author Registry - University of Windsor" in text
+    assert "Doe, Jane" in text

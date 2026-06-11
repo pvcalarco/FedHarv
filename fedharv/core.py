@@ -103,7 +103,7 @@ class HarvesterEngine:
             'enriched_datacite': 0, 'enriched_orcid': 0, 'enriched_doaj': 0,
             'dept_breakdown': defaultdict(Counter),
             'dept_publisher_breakdown': defaultdict(Counter),
-            'windsor_author_db': defaultdict(lambda: {'depts': set(), 'emails': set(), 'orcids': set()}),
+            'author_db': defaultdict(lambda: {'depts': set(), 'emails': set(), 'orcids': set()}),
         }
         
         safe_start = self.config.START_DATE.replace('-', '')
@@ -113,7 +113,7 @@ class HarvesterEngine:
         self.csv_file = os.path.join(self.config.OUTPUT_DIR, csv_filename)
         
         self.ris_file = os.path.join(self.config.OUTPUT_DIR, "citations.ris") 
-        self.author_file = os.path.join(self.config.OUTPUT_DIR, "windsor_authors.txt")
+        self.author_file = os.path.join(self.config.OUTPUT_DIR, self.config.AUTHOR_REGISTRY_FILE)
         self.publisher_report_file = os.path.join(self.config.OUTPUT_DIR, "department_publisher_report.csv")
 
     def increment_stat(self, stat_name, amount=1):
@@ -211,14 +211,13 @@ class HarvesterEngine:
         return results['cr'], results['upw'], results['sherpa'], results['dc'], results['doaj']
 
     def extract_authors(self, item, cr):
-        target_check = "windsor"
         def reg(name, orcid=None, dept=None, email=None):
             if not name: return
             if "," not in name and " " in name: 
                 parts = name.split()
                 name = f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
             with self.locks['author']:
-                entry = self.STATS['windsor_author_db'][name]
+                entry = self.STATS['author_db'][name]
                 if orcid: entry['orcids'].add(orcid)
                 if dept: entry['depts'].add(dept)
                 if email: entry['emails'].add(email)
@@ -226,11 +225,11 @@ class HarvesterEngine:
         
         if item['source'] == 'openalex':
             for ship in ensure_list_of_dicts(deep_get(item, ['raw', 'authorships'])):
-                is_windsor = False
+                is_target = False
                 dept_found = None
                 for inst in ensure_list_of_dicts(ship.get('institutions')):
-                    if target_check in inst.get('display_name', '').lower(): is_windsor = True
-                if is_windsor:
+                    if affiliation_matches_target([inst.get('display_name', '')], self.config.TARGET_AFFIL): is_target = True
+                if is_target:
                     raw_aff = ship.get('raw_affiliation_string', '')
                     if raw_aff:
                         match = re.search(r'(Department of [^,]+|School of [^,]+|Faculty of [^,]+)', raw_aff, re.IGNORECASE)
@@ -239,14 +238,14 @@ class HarvesterEngine:
 
         if cr and cr.get('raw_message'):
             for auth in ensure_list_of_dicts(deep_get(cr, ['raw_message', 'author'])):
-                is_windsor = False
+                is_target = False
                 dept_found = None
                 for aff in ensure_list_of_dicts(auth.get('affiliation')):
-                    if target_check in aff.get('name', '').lower(): 
-                        is_windsor = True
+                    if affiliation_matches_target([aff.get('name', '')], self.config.TARGET_AFFIL):
+                        is_target = True
                         dept_found = aff.get('name')
 
-                if is_windsor:
+                if is_target:
                     reg(f"{auth.get('family')}, {auth.get('given')}", auth.get('ORCID').replace('http://orcid.org/','').replace('https://orcid.org/','') if auth.get('ORCID') else None, dept_found, None)
 
     def get_paper_orcids(self, item, cr):
@@ -254,14 +253,14 @@ class HarvesterEngine:
         if item['source'] == 'openalex':
              for ship in ensure_list_of_dicts(deep_get(item, ['raw', 'authorships'])):
                   for inst in ensure_list_of_dicts(ship.get('institutions')):
-                        if "windsor" in inst.get('display_name', '').lower():
+                        if affiliation_matches_target([inst.get('display_name', '')], self.config.TARGET_AFFIL):
                              oid = deep_get(ship, ['author', 'orcid'])
                              if oid: orcids.add(oid.replace('https://orcid.org/', ''))
         
         if cr and cr.get('raw_message'):
              for auth in ensure_list_of_dicts(deep_get(cr, ['raw_message', 'author'])):
                   for aff in ensure_list_of_dicts(auth.get('affiliation')):
-                        if "windsor" in aff.get('name', '').lower():
+                        if affiliation_matches_target([aff.get('name', '')], self.config.TARGET_AFFIL):
                              if auth.get('ORCID'): 
                                  orcids.add(auth.get('ORCID').replace('http://orcid.org/','').replace('https://orcid.org/',''))
         return list(orcids)
@@ -491,7 +490,7 @@ class HarvesterEngine:
         except Exception: 
             pass
         
-        self.metadata_exporter.generate_author_registry(self.STATS['windsor_author_db'])
+        self.metadata_exporter.generate_author_registry(self.STATS['author_db'], self.config.TARGET_AFFIL)
 
     def cleanup_empty_item_dirs(self):
         """Remove stale empty item_* directories from prior interrupted runs."""
@@ -547,7 +546,7 @@ class HarvesterEngine:
         with open(self.ris_file, 'w', encoding='utf-8') as f: 
             pass
 
-        generate_import_scripts(self.config.OUTPUT_DIR, self.config.DSPACE_BIN, self.config.DSPACE_EMAIL)
+        generate_import_scripts(self.config.OUTPUT_DIR, self.config.DSPACE_BIN, self.config.DSPACE_EMAIL, self.config.COLLECTIONS, self.config.DEFAULT_COLLECTION)
 
         oa_list, cr_list = self.discover()
         final_list = self.deduplicate_and_merge(oa_list, cr_list)

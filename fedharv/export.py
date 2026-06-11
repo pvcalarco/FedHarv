@@ -8,7 +8,7 @@ from collections import defaultdict
 from .config import CC_LICENSE_NAMES
 from .utils import clean_text, sanitize_filename, clean_abstract
 
-def map_to_dublin_core(item, enrich, all_affils, windsor_orcids):
+def map_to_dublin_core(item, enrich, all_affils, target_orcids):
     md = [] 
     def add(s, e, q, v):
         if v: md.append({'schema': s, 'element': e, 'qualifier': q, 'value': clean_text(v)})
@@ -51,7 +51,7 @@ def map_to_dublin_core(item, enrich, all_affils, windsor_orcids):
     for auth in item.get('norm_authors', []): 
         if isinstance(auth, dict): add('dc', 'contributor', 'author', auth.get('name'))
         else: add('dc', 'contributor', 'author', auth)
-    for oid in windsor_orcids: add('person', 'identifier', 'orcid', oid)
+    for oid in target_orcids: add('person', 'identifier', 'orcid', oid)
     
     add('oaire', 'citation', 'title', item.get('journal'))
     if item.get('volume'): add('oaire', 'citation', 'volume', item['volume'])
@@ -91,15 +91,16 @@ def write_saf(metadata, item_dir, bitstream_file):
     if bitstream_file:
         with open(os.path.join(item_dir, 'contents'), 'w', encoding='utf-8') as f: f.write(bitstream_file)
 
-def generate_import_scripts(base_dir, dspace_bin, dspace_email):
+def generate_import_scripts(base_dir, dspace_bin, dspace_email, collections=None, default_collection="123456789/0"):
     script_file = os.path.join(base_dir, "import_batch.sh")
     with open(script_file, 'w') as f:
         f.write("#!/bin/bash\n\n")
         for root, dirs, files in os.walk(base_dir):
             if any(fl == "dublin_core.xml" for fl in files): continue
             if any(d.startswith("item_") for d in dirs):
+                 handle = (collections or {}).get(os.path.basename(root), default_collection)
                  f.write(f"echo 'Importing: {root}'\n")
-                 f.write(f"{dspace_bin} import --add --eperson={dspace_email} --collection=123456789/0 --source={root} --mapfile=mapfile_{sanitize_filename(root)}\n\n")
+                 f.write(f"{dspace_bin} import --add --eperson={dspace_email} --collection={handle} --source={root} --mapfile=mapfile_{sanitize_filename(root)}\n\n")
 
 def write_report(filepath, row):
     exists = os.path.isfile(filepath)
@@ -156,7 +157,7 @@ def generate_ris_block(item, enrich):
 
 
 class MetadataExporter:
-    """Manages writing harvested data to CSV reports, RIS blocks, DSpace import packages (SAF), and Windsor author lists."""
+    """Manages writing harvested data to CSV reports, RIS blocks, DSpace import packages (SAF), and author lists."""
     def __init__(self, output_dir, csv_file, ris_file, author_file, publisher_report_file):
         self.output_dir = output_dir
         self.csv_file = csv_file
@@ -200,10 +201,11 @@ class MetadataExporter:
                 for pub, count in pubs.most_common():
                     w.writerow([dept, pub, count])
 
-    def generate_author_registry(self, windsor_author_db):
+    def generate_author_registry(self, author_db, target_affil=None):
+        header = f"Author Registry - {target_affil}" if target_affil else "Author Registry"
         with open(self.author_file, 'w', encoding='utf-8') as af:
-            af.write("Windsor Author Registry\n=======================\n")
-            for name, data in sorted(windsor_author_db.items()):
+            af.write(f"{header}\n{'=' * len(header)}\n")
+            for name, data in sorted(author_db.items()):
                 depts = "; ".join(sorted(data['depts'])) if data['depts'] else "Unknown"
                 emails = ", ".join(sorted([e for e in data['emails'] if e])) if data['emails'] else "N/A"
                 orcids = ", ".join(sorted([o for o in data['orcids'] if o])) if data['orcids'] else "N/A"

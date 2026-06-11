@@ -222,17 +222,26 @@ class ConfigManager:
             self.CACHE_DIR = self.config.get('General', 'CacheDir', fallback='.fedharv_cache')
             cache_days = self.config.getint('General', 'CacheMaxAgeDays', fallback=30)
             self.CACHE_MAX_AGE = cache_days * 86400 if cache_days > 0 else None  # None = never expire
-            
+            self.AUTHOR_REGISTRY_FILE = self.config.get('General', 'AuthorRegistryFile', fallback='author_registry.txt')
+
             self.CHECK_DSPACE = self.config.getboolean('DSpace', 'CheckDuplicates', fallback=False)
             self.DSPACE_API = self.config.get('DSpace', 'ApiUrl', fallback='')
-            self.DSPACE_EMAIL = self.config.get('DSpace', 'AdminEmail', fallback='admin@uwindsor.ca')
+            self.DSPACE_EMAIL = self.config.get('DSpace', 'AdminEmail', fallback='admin@example.org')
             self.DSPACE_BIN = self.config.get('DSpace', 'BinPath', fallback='/dspace/bin/dspace')
+            self.DEFAULT_COLLECTION = self.config.get('DSpace', 'DefaultCollection', fallback='123456789/0')
             self.CROSSREF_TOKEN = self.config.get('Authentication', 'CrossrefPlusToken', fallback='')
             
             self.UNIT_MAP = {}
             if 'Mappings' in self.config:
                 for key, val in self.config.items('Mappings'):
                     self.UNIT_MAP[key.lower()] = val
+
+            # Optional department-folder -> DSpace collection handle map. Keys are the
+            # case-sensitive folder names produced by determine_primary_department().
+            self.COLLECTIONS = {}
+            if 'Collections' in self.config:
+                for key, val in self.config.items('Collections'):
+                    self.COLLECTIONS[key] = val
         except configparser.NoOptionError as e:
             print(f"Configuration Error: Missing required setting - {e}")
             sys.exit(1)
