@@ -63,6 +63,7 @@ The system is designed for institutional repositories and digital libraries that
 - **Split Output Strategy**:
   - `Items_With_PDF/`: Complete SAF packages with PDF files.
   - `Items_Only_Link/`: SAF packages with DOI links (no PDF).
+  - `Green/`: Green-OA items as metadata + DOI link only (no PDF is fetched for green items).
   - `citations.ris`: RIS format citations for link-only items.
 - **DSpace Compatibility**: Full SAF (Simple Archive Format) support.
 - **Batch Import Scripts**: Automated DSpace import script generation.
@@ -311,6 +312,6 @@ Contributions are welcome! Please follow these guidelines:
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the `GNU AFFERO GENERAL PUBLIC LICENSE.md` file for details.
 
 ---
-**Version**: 1.1 (Modular Release)  
+**Version**: 1.0.1 (Modular Release)  
 **Maintainer**: Pascal V. Calarco  
 **Contact**: pcalarco@uwindsor.ca
