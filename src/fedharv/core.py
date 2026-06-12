@@ -107,8 +107,6 @@ class HarvesterEngine:
         self.locks = {
             'stats': threading.Lock(),
             'csv': threading.Lock(),
-            'author': threading.Lock(),
-            'print': threading.Lock(),
             'ris': threading.Lock() 
         }
 
@@ -245,7 +243,7 @@ class HarvesterEngine:
             if "," not in name and " " in name: 
                 parts = name.split()
                 name = f"{parts[-1]}, {' '.join(parts[:-1])}" if len(parts) > 1 else name
-            with self.locks['author']:
+            with self.locks['stats']:
                 entry = self.STATS['author_db'][name]
                 if orcid: entry['orcids'].add(orcid)
                 if dept: entry['depts'].add(dept)
@@ -507,8 +505,7 @@ class HarvesterEngine:
             with self.locks['ris']:
                 self.metadata_exporter.write_ris_entry(item, enrich)
 
-        with self.locks['print']: 
-            logging.info(f"[{idx}] {item['title'][:40]}... -> {target_folder}")
+        logging.info(f"[{idx}] {item['title'][:40]}... -> {target_folder}")
 
     def process_items(self, final_list):
         self.metadata_exporter.open_handles()

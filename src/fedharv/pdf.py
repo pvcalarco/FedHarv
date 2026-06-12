@@ -143,6 +143,32 @@ class PDFDownloader:
             except Exception:
                 pass
 
+    def learn_pattern_from_url(self, doi, resolved_pdf_url):
+        if not doi or not resolved_pdf_url: return
+        prefix = doi.split('/')[0]
+        if prefix in DOI_PDF_PATTERNS or prefix in self.patterns:
+            return
+            
+        suffix = doi.split('/')[-1]
+        pattern = None
+        if doi in resolved_pdf_url:
+            pattern = resolved_pdf_url.replace(doi, '{doi}')
+        elif suffix in resolved_pdf_url:
+            pattern = resolved_pdf_url.replace(suffix, '{doi_suffix}')
+            
+        if pattern:
+            self.patterns[prefix] = pattern
+            self.save_learned_patterns()
+            logging.info(f"Learned new PDF pattern for DOI prefix '{prefix}': {pattern}")
+
+    def save_learned_patterns(self):
+        try:
+            import json
+            with open(self.patterns_file, 'w') as f:
+                json.dump(self.patterns, f, indent=4)
+        except Exception as e:
+            logging.warning(f"Could not save learned patterns to {self.patterns_file}: {e}")
+
     def is_elsevier_item(self, item, landing_url):
         pub = (item.get('publisher') or '').lower()
         if 'elsevier' in pub: return True
@@ -199,6 +225,7 @@ class PDFDownloader:
         if landing_url:
             s_url = fetch_html_meta_pdf_link(landing_url, session)
             if s_url and download_file_stream(s_url, temp_pdf, session):
+                self.learn_pattern_from_url(item['doi'], s_url)
                 return True, "Meta-Scraper"
         
         # 7. DOI-only Heuristics (no landing page needed)
@@ -224,8 +251,11 @@ class PDFDownloader:
                     try:
                         page = context.new_page()
                         try:
-                            page.goto(task['landing_url'], timeout=60000, wait_until="domcontentloaded")
-                            page.wait_for_timeout(5000)
+                            page.goto(task['landing_url'], timeout=30000, wait_until="domcontentloaded")
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=3000)
+                            except Exception:
+                                page.wait_for_timeout(1000)
                             
                             pdf_meta = None
                             try: 
@@ -242,6 +272,7 @@ class PDFDownloader:
                                          f.write(r.body())
                                      pdf_success = True
                                      source = "Browser Meta-Scraper"
+                                     self.learn_pattern_from_url(task['item']['doi'], pdf_meta)
                             
                             if not pdf_success:
                                 selectors = ["a[href$='.pdf']", "a:has-text('PDF')", "button:has-text('PDF')", ".pdf-download"]

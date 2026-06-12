@@ -104,3 +104,18 @@ def test_fetch_pdf_with_waterfall_falls_through_to_doi_heuristics(monkeypatch):
 
     assert ok is True
     assert source == "DOI Heuristics"
+
+
+def test_learn_pattern_from_url_deduces_doi_placeholder():
+    downloader = _new_downloader()
+    downloader.patterns = {}
+    
+    # Resolved URL contains the full DOI
+    downloader.learn_pattern_from_url("10.1234/5678", "https://publisher.com/pdf/10.1234/5678.pdf")
+    assert downloader.patterns.get("10.1234") == "https://publisher.com/pdf/{doi}.pdf"
+    
+    # Resolved URL contains only the DOI suffix
+    downloader.patterns = {}
+    downloader.learn_pattern_from_url("10.1234/5678", "https://publisher.com/download/5678/document.pdf")
+    assert downloader.patterns.get("10.1234") == "https://publisher.com/download/{doi_suffix}/document.pdf"
+
