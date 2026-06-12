@@ -105,54 +105,50 @@ class APIClient:
     @cached_api_call("unpaywall")
     @safe_call(default={}, log_errors=True)
     def fetch_unpaywall_data(self, doi):
-        r = self.SESSION.get(f"{UNPAYWALL_API}{doi}?email={self.config.EMAIL_CONTACT}", timeout=30)
-        data = safe_json_dict(r.json())
-        return data
+        url = f"{UNPAYWALL_API}{doi}"
+        params = {"email": self.config.EMAIL_CONTACT}
+        r = rate_limited_get(url, session=self.SESSION, params=params, timeout=30)
+        if r.status_code == 200:
+            return safe_json_dict(r.json())
+        return {}
 
     @cached_api_call("crossref")
     def fetch_crossref_data(self, doi):
-        while True:
-            try:
-                r = self.SESSION.get(f"{CROSSREF_API_URL}/{doi}", headers=self.HEADERS, timeout=30)
+        try:
+            url = f"{CROSSREF_API_URL}/{doi}"
+            r = rate_limited_get(url, session=self.SESSION, headers=self.HEADERS, timeout=30)
+            
+            if r.status_code == 200:
+                m = safe_json_dict(r.json()).get('message', {})
+                affs = [a['name'] for auth in ensure_list_of_dicts(m.get('author')) for a in ensure_list_of_dicts(auth.get('affiliation')) if 'name' in a]
+                funders = []
+                for f in ensure_list_of_dicts(m.get('funder')):
+                    fname = f.get('name')
+                    awards = f.get('award', [])
+                    if fname: funders.append(f"{fname} (Award: {', '.join([str(x) for x in awards if x])})" if awards else fname)
+                authors = []
+                for auth in ensure_list_of_dicts(m.get('author')):
+                    family = auth.get('family')
+                    given = auth.get('given')
+                    if family and given: authors.append(f"{family}, {given}")
+                    elif family: authors.append(family)
                 
-                if r.status_code == 200:
-                    m = safe_json_dict(r.json()).get('message', {})
-                    affs = [a['name'] for auth in ensure_list_of_dicts(m.get('author')) for a in ensure_list_of_dicts(auth.get('affiliation')) if 'name' in a]
-                    funders = []
-                    for f in ensure_list_of_dicts(m.get('funder')):
-                        fname = f.get('name')
-                        awards = f.get('award', [])
-                        if fname: funders.append(f"{fname} (Award: {', '.join([str(x) for x in awards if x])})" if awards else fname)
-                    authors = []
-                    for auth in ensure_list_of_dicts(m.get('author')):
-                        family = auth.get('family')
-                        given = auth.get('given')
-                        if family and given: authors.append(f"{family}, {given}")
-                        elif family: authors.append(family)
-                    
-                    crossref_pdf = None
-                    if 'link' in m:
-                        for l in ensure_list_of_dicts(m['link']):
-                            if l.get('content-type') == 'application/pdf':
-                                crossref_pdf = l.get('URL')
-                                if l.get('intended-application') == 'text-mining':
-                                    break 
-                                    
-                    data = {'publisher': m.get('publisher'), 'license': next((l['URL'] for l in ensure_list_of_dicts(m.get('license')) if 'URL' in l), None), 'affiliations': affs, 'funders': funders, 'authors': authors, 'crossref_pdf': crossref_pdf, 'raw_message': m}
-                    return data
-                
-                elif r.status_code == 429:
-                    retry_after = int(r.headers.get("Retry-After", 2))
-                    logging.warning(f"CrossRef Rate Limit (429). Sleeping {retry_after}s for {doi}...")
-                    time.sleep(retry_after)
-                    continue 
-                
-                else:
-                    return {}
-
-            except Exception as e:
-                logging.error(f"CrossRef Fetch Error for {doi}: {e}")
+                crossref_pdf = None
+                if 'link' in m:
+                    for l in ensure_list_of_dicts(m['link']):
+                        if l.get('content-type') == 'application/pdf':
+                            crossref_pdf = l.get('URL')
+                            if l.get('intended-application') == 'text-mining':
+                                break 
+                                
+                data = {'publisher': m.get('publisher'), 'license': next((l['URL'] for l in ensure_list_of_dicts(m.get('license')) if 'URL' in l), None), 'affiliations': affs, 'funders': funders, 'authors': authors, 'crossref_pdf': crossref_pdf, 'raw_message': m}
+                return data
+            else:
                 return {}
+
+        except Exception as e:
+            logging.error(f"CrossRef Fetch Error for {doi}: {e}")
+            return {}
 
     @cached_api_call("sherpa")
     @safe_call(default=None, log_errors=True)

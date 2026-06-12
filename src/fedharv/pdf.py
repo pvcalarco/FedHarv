@@ -10,29 +10,46 @@ from .utils import safe_call
 
 def resolve_url(url, session):
     if not url or ("doi.org" not in url and "handle.net" not in url): return url
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
-        r = session.head(url, allow_redirects=True, timeout=15)
+        r = session.head(url, allow_redirects=True, timeout=15, headers=headers)
         if r.status_code in [405, 403]:
-            r = session.get(url, stream=True, allow_redirects=True, timeout=15)
+            r = session.get(url, stream=True, allow_redirects=True, timeout=15, headers=headers)
             r.close()
         return r.url
-    except Exception:
+    except Exception as e:
+        logging.debug(f"resolve_url failed for {url}: {e}")
         return url
 
 def download_file_stream(url, path, session, extra_headers=None):
     if not url: return False
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    if extra_headers:
+        headers.update(extra_headers)
     try:
-        with session.get(url, stream=True, timeout=60, allow_redirects=True, headers=extra_headers) as r:
-            if r.status_code != 200: return False
+        with session.get(url, stream=True, timeout=60, allow_redirects=True, headers=headers) as r:
+            if r.status_code != 200: 
+                logging.debug(f"download_file_stream: HTTP {r.status_code} for {url}")
+                return False
             chunk_iter = r.iter_content(chunk_size=4096)
             try: first_chunk = next(chunk_iter)
-            except StopIteration: return False
-            if b'%PDF-' not in first_chunk: return False
+            except StopIteration: 
+                logging.debug(f"download_file_stream: Empty body for {url}")
+                return False
+            if b'%PDF-' not in first_chunk: 
+                logging.debug(f"download_file_stream: Content not PDF for {url}")
+                return False
             with open(path, 'wb') as f:
                 f.write(first_chunk)
                 for chunk in chunk_iter: f.write(chunk)
         return True
-    except Exception: 
+    except Exception as e: 
+        logging.debug(f"download_file_stream: Exception downloading {url}: {e}")
         return False
 
 def fetch_html_meta_pdf_link(landing_url, session):
@@ -52,12 +69,19 @@ def fetch_html_meta_pdf_link(landing_url, session):
         should_scrape = True
     if not should_scrape: return None
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
     try:
-        r = session.get(landing_url, timeout=15, allow_redirects=True)
+        r = session.get(landing_url, headers=headers, timeout=15, allow_redirects=True)
         if r.status_code == 200:
             match = re.search(r'<meta\s+name=["\']citation_pdf_url["\']\s+content=["\'](.*?)["\']', r.text, re.IGNORECASE)
             if match: return match.group(1)
-    except Exception:
+        else:
+            logging.debug(f"fetch_html_meta_pdf_link: HTTP {r.status_code} for {landing_url}")
+    except Exception as e:
+        logging.debug(f"fetch_html_meta_pdf_link: Exception fetching {landing_url}: {e}")
         pass
     return None
 

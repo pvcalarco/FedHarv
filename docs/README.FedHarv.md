@@ -331,6 +331,6 @@ Contributions are welcome! Please follow these guidelines:
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the `GNU AFFERO GENERAL PUBLIC LICENSE.md` file for details.
 
 ---
-**Version**: 1.1.1  
+**Version**: 1.1.2  
 **Maintainer**: Pascal V. Calarco  
 **Contact**: pcalarco@uwindsor.ca

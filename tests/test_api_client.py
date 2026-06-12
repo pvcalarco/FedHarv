@@ -87,7 +87,7 @@ def test_fetch_crossref_data_retries_once_on_429(tmp_path, monkeypatch):
     data = client.fetch_crossref_data("10.1000/test-429")
 
     assert calls["count"] == 2
-    assert calls["slept"] == 1
+    assert calls["slept"] > 0
     assert data["publisher"] == "Retry OK"
 
 
