@@ -55,7 +55,7 @@ The result is a DSpace-ready output bundle with consistent metadata and import h
 - **Publisher-Specific Rules**: 25+ publisher-specific URL transformation patterns.
 - **DOI-Based Heuristics**: Automatic PDF URL generation from DOI prefixes.
 - **Browser Automation Fallback**: Playwright browser automation to scrape dynamic landing pages and handle complex JavaScript PDF downloads.
-- **Pattern Support**: Optional publisher pattern loading from `learned_patterns.json` (read at startup).
+- **Pattern Support & Learning**: Load publisher patterns from `learned_patterns.json` at startup, and dynamically append newly learned templates during successful metadata scans.
 
 ### 🏗️ **Output Management**
 
