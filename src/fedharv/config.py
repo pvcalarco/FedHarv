@@ -132,6 +132,23 @@ CC_LICENSE_NAMES = {
     "https://creativecommons.org/licenses/by-nc-sa/4.0/": "Creative Commons CC-BY-NC-SA 4.0 International"
 }
 
+
+def resolve_config_path(config_file):
+    """Resolve config path with a fallback to the src directory."""
+    if not config_file:
+        return config_file
+
+    if os.path.isabs(config_file) or os.path.exists(config_file):
+        return config_file
+
+    # When launched from repo root, prefer src/config.ini if present.
+    src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    src_candidate = os.path.join(src_dir, config_file)
+    if os.path.exists(src_candidate):
+        return src_candidate
+
+    return config_file
+
 def validate_date(date_str):
     """Ensure date is YYYY-MM-DD format."""
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
@@ -200,6 +217,8 @@ class ConfigManager:
             parser.add_argument("--config", type=str, default="config.ini", help="Path to config file")
             self.args, unknown = parser.parse_known_args() # Avoid errors if run inside other wrappers
             config_file = self.args.config
+
+        config_file = resolve_config_path(config_file)
 
         self.config = configparser.ConfigParser()
         self.config.optionxform = str # Preserve case

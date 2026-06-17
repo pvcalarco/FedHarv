@@ -317,6 +317,7 @@ class HarvesterEngine:
             
             if check_dspace_duplicate(item['doi'], self.config.CHECK_DSPACE, self.config.DSPACE_API):
                 with self.locks['stats']: self.STATS['dspace_duplicates'] += 1
+                logging.info(f"[DUPLICATE] Found in DSpace: {item['doi']} - {item['title'][:60]}...")
                 return None
 
             # --- DOI RECOVERY ---
@@ -374,11 +375,19 @@ class HarvesterEngine:
             
             enrich['license'] = final_license
 
-            # --- FOLDER SORTING ---
+            # --- FOLDER SORTING & GREEN PDF LOGIC ---
             target_folder = "Items_With_PDF"
+            is_green_with_pdf = False
+            
             if upw_status == 'green':
                 with self.locks['stats']: self.STATS['processed_green'] += 1
                 target_folder = "Green"
+                
+                # For Green OA, check if Unpaywall has a real PDF link (not just DOI)
+                unpaywall_pdf = deep_get(upw, ['best_oa_location', 'pdf_url'])
+                if unpaywall_pdf and not (unpaywall_pdf.startswith('https://doi.org/') or unpaywall_pdf.startswith('http://doi.org/')):
+                    is_green_with_pdf = True
+                    
             elif item.get('oa_status') in ['Gold', 'Hybrid', 'Diamond']:
                 with self.locks['stats']:
                     if item.get('oa_status') == 'Hybrid': self.STATS['processed_hybrid'] += 1
@@ -415,7 +424,7 @@ class HarvesterEngine:
             temp_pdf = None
             dest_pdf = None
             
-            if target_folder == "Items_With_PDF":
+            if target_folder == "Items_With_PDF" or is_green_with_pdf:
                 dest_pdf = os.path.join(item_dir, "article.pdf")
                 temp_pdf = os.path.join(self.config.OUTPUT_DIR, f"temp_{idx}.pdf")
                 
@@ -435,7 +444,7 @@ class HarvesterEngine:
                         task_info = {
                             'idx': idx, 'item': item, 'landing_url': landing_url, 
                             'temp_pdf': temp_pdf, 'dest_pdf': dest_pdf, 
-                            'item_dir': item_dir, 'target_folder': target_folder, 
+                            'item_dir': item_dir, 'target_folder': target_folder, 'is_green_with_pdf': is_green_with_pdf,
                             'dept': dept, 'md': md, 'enrich': enrich, 'doctype': doctype
                         }
                         with self.locks['stats']:
@@ -446,7 +455,7 @@ class HarvesterEngine:
                 'idx': idx, 'item': item, 'landing_url': landing_url if 'landing_url' in locals() else None, 
                 'temp_pdf': temp_pdf if 'temp_pdf' in locals() else None, 
                 'dest_pdf': dest_pdf if 'dest_pdf' in locals() else None, 
-                'item_dir': item_dir, 'target_folder': target_folder, 
+                'item_dir': item_dir, 'target_folder': target_folder, 'is_green_with_pdf': is_green_with_pdf,
                 'dept': dept, 'md': md, 'enrich': enrich, 'doctype': doctype
             }
             self.finalize_item(task_info, pdf_success, source)
@@ -464,6 +473,7 @@ class HarvesterEngine:
         md = task['md']
         enrich = task['enrich']
         doctype = task['doctype']
+        is_green_with_pdf = task.get('is_green_with_pdf', False)
 
         # Create the item directory only when we are actually finalizing output.
         os.makedirs(item_dir, exist_ok=True)
@@ -486,6 +496,17 @@ class HarvesterEngine:
                 with self.locks['stats']: 
                     self.STATS['pdf_fail'] += 1
                     self.STATS['gold_metadata_only'] += 1
+        elif target_folder == "Green" and is_green_with_pdf:
+            # For Green items with PDF download attempt
+            if pdf_success:
+                robust_move_file(temp_pdf, dest_pdf)
+                with self.locks['stats']: 
+                    self.STATS['pdf_success'] += 1
+                    self.STATS['pdf_sources'][source] += 1
+            else:
+                robust_remove_file(temp_pdf)
+                with self.locks['stats']: 
+                    self.STATS['pdf_fail'] += 1
 
         if target_folder != "Items_With_PDF":
             with open(os.path.join(item_dir, "link.txt"), 'w', encoding='utf-8') as f: 

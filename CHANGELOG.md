@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Interactive duplicate reporting during processing: when a DOI already exists in DSpace, the harvester now logs `[DUPLICATE] Found in DSpace: <doi> - <title>...`.
+
+### Changed
+- Configuration resolution now supports a fallback path so running `src/run_harvester.py` from repository root can locate `src/config.ini` when `config.ini` is not present in the current working directory.
+- Green OA handling now attempts PDF download via Unpaywall when `best_oa_location.pdf_url` is a concrete PDF target.
+- Green OA Unpaywall links that are DOI resolver URLs (for example `https://doi.org/...`) are now skipped for PDF download attempts to avoid redundant resolver hops.
+- Green OA items remain in the `Green` output collection regardless of PDF download success.
+
 ## [1.1.2] - 2026-06-12
 
 ### Added

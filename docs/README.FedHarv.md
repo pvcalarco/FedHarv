@@ -70,6 +70,7 @@ The result is a DSpace-ready output bundle with consistent metadata and import h
 - **Strict OA Filtering**: Gold, Hybrid, Diamond, and Green OA only (Closed/Bronze skipped).
 - **License Validation**: Creative Commons and publisher license verification.
 - **Metadata Completeness**: Guaranteed minimum metadata requirements.
+- **DSpace Duplicate Visibility**: Logs each DOI duplicate hit during processing when DSpace duplicate checking is enabled.
 - **Error Resilience**: Comprehensive error handling and recovery.
 
 ---
@@ -225,10 +226,17 @@ chemistry = Faculty_of_Science_Chemistry_Biochemistry
 
 ### Run Harvester
 
-Execute the modular entrypoint script:
+Execute the modular entrypoint script using either command:
 ```bash
+
+python src/run_harvester.py
+
+# Equivalent explicit form
 python src/run_harvester.py --config src/config.ini
 ```
+
+When no `--config` flag is provided, FedHarv looks for `config.ini` and also falls back to `src/config.ini`.
+
 To specify a custom configuration file:
 
 ```bash
@@ -243,6 +251,16 @@ python src/run_harvester.py --config src/config.ini --dry-run
 
 # Resume without cleaning existing output tree
 python src/run_harvester.py --config src/config.ini --resume
+```
+
+DSpace duplicate behavior:
+
+- Duplicate checks run during normal processing and `--resume` runs when `DSpace.CheckDuplicates=true` and `DSpace.ApiUrl` is configured.
+- `--dry-run` does not process items, so DSpace duplicate checks are not executed in dry-run mode.
+- Duplicate hits are logged interactively as:
+
+```text
+[DUPLICATE] Found in DSpace: <doi> - <title>...
 ```
 
 ### Programmatic Usage
@@ -268,6 +286,12 @@ When resolving an item's PDF, FedHarv attempts the following sources sequentiall
 6. **Meta-Tag Scraper** (Grabs `<meta name="citation_pdf_url">` via static requests).
 7. **DOI-Only Heuristics** (Prefixed publisher patterns).
 8. **Playwright Browser Automation** (As a final fallback, launches chromium to simulate clicks and extract browser downloads).
+
+Green OA download behavior:
+
+- Green OA items are routed to the `Green/` collection and can now attempt PDF download via Unpaywall when a concrete PDF URL is present.
+- If the Unpaywall URL is only a DOI resolver URL (for example `https://doi.org/...`), the download attempt is skipped for that Green item.
+- Green items stay in `Green/` whether or not PDF download succeeds.
 
 ---
 
@@ -312,6 +336,7 @@ FedHarv_Output/
 ## Troubleshooting
 
 - Ensure `src/config.ini` and `.env` are present and correctly populated.
+- If running from repository root, `python src/run_harvester.py` will use `config.ini` and fall back to `src/config.ini` when needed.
 - If browser fallback fails, reinstall Playwright dependencies with `playwright install chromium`.
 - Verify API credentials (OpenAlex email, CrossRef token, Scopus key, Sherpa key) when metadata or PDF discovery is incomplete.
 
@@ -331,6 +356,6 @@ Contributions are welcome! Please follow these guidelines:
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the `GNU AFFERO GENERAL PUBLIC LICENSE.md` file for details.
 
 ---
-**Version**: 1.1.2  
+**Version**: 1.1.3 (Unreleased)  
 **Maintainer**: Pascal V. Calarco  
 **Contact**: pcalarco@uwindsor.ca
