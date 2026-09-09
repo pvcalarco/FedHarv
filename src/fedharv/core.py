@@ -10,19 +10,36 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
 
-from .config import ConfigManager
-from .api import APIClient, check_dspace_duplicate
-from .pdf import PDFDownloader, resolve_url
-from .export import (
-    MetadataExporter, write_saf, generate_import_scripts,
-    generate_ris_block, map_to_dublin_core
-)
-from .utils import (
-    normalize_oa_status, normalize_doctype, normalize_string,
-    sanitize_filename, determine_primary_department, extract_all_affiliations,
-    deep_get, ensure_list_of_dicts, normalize_license_uri,
-    affiliation_matches_target
-)
+try:
+    from .config import ConfigManager
+    from .api import APIClient, check_dspace_duplicate
+    from .pdf import PDFDownloader, resolve_url
+    from .export import (
+        MetadataExporter, write_saf, generate_import_scripts,
+        generate_ris_block, map_to_dublin_core
+    )
+    from .utils import (
+        normalize_oa_status, normalize_doctype, normalize_string,
+        sanitize_filename, determine_primary_department, extract_all_affiliations,
+        deep_get, ensure_list_of_dicts, normalize_license_uri,
+        affiliation_matches_target
+    )
+except ImportError:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from fedharv.config import ConfigManager
+    from fedharv.api import APIClient, check_dspace_duplicate
+    from fedharv.pdf import PDFDownloader, resolve_url
+    from fedharv.export import (
+        MetadataExporter, write_saf, generate_import_scripts,
+        generate_ris_block, map_to_dublin_core
+    )
+    from fedharv.utils import (
+        normalize_oa_status, normalize_doctype, normalize_string,
+        sanitize_filename, determine_primary_department, extract_all_affiliations,
+        deep_get, ensure_list_of_dicts, normalize_license_uri,
+        affiliation_matches_target
+    )
+
 
 # Robust filesystem helper functions
 def robust_cleanup(path):
@@ -635,3 +652,16 @@ class HarvesterEngine:
             return
 
         self.process_items(final_list)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Run FedHarv harvest")
+    parser.add_argument("--config", default="config.ini", help="Path to config file")
+    parser.add_argument("--dry-run", action="store_true", help="Discover and deduplicate only, without writing output")
+    parser.add_argument("--resume", action="store_true", help="Resume from existing output without cleanup")
+    args = parser.parse_args()
+
+    harvester = HarvesterEngine(config_path=args.config)
+    harvester.run(dry_run=args.dry_run, resume=args.resume)
+
