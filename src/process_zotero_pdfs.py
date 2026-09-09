@@ -187,7 +187,7 @@ def load_config():
         sys.exit(1)
 
     if not os.path.isabs(output_dir):
-        base_dir = os.path.abspath(os.path.join(script_dir, output_dir))
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(script_dir), output_dir))
     else:
         base_dir = output_dir
 

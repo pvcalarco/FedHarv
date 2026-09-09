@@ -11,3 +11,4 @@ venv/
 
 # Runtime artifacts
 Output/
+Output-*/
