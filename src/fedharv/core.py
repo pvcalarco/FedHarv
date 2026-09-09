@@ -168,32 +168,50 @@ class HarvesterEngine:
                 self.STATS[stat_name] += amount
 
     def discover(self):
-        logging.info(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.config.START_DATE} to {self.config.END_DATE}...")
-        
-        def run_oa():
-            return self.api_client.harvest_openalex(
-                self.config.START_DATE, 
-                self.config.END_DATE, 
-                self.config.TARGET_AFFIL,
-                stats_callback=self.increment_stat
-            )
+        if getattr(self.config, 'ENABLE_CROSSREF_DISCOVERY', False):
+            logging.info(f"Starting concurrent API discovery (OpenAlex + Crossref) from {self.config.START_DATE} to {self.config.END_DATE}...")
             
-        def run_cr():
-            return self.api_client.harvest_crossref(
+            def run_oa():
+                return self.api_client.harvest_openalex(
+                    self.config.START_DATE, 
+                    self.config.END_DATE, 
+                    self.config.TARGET_AFFIL,
+                    stats_callback=self.increment_stat
+                )
+                
+            def run_cr():
+                return self.api_client.harvest_crossref(
+                    self.config.START_DATE, 
+                    self.config.END_DATE, 
+                    self.config.TARGET_AFFIL,
+                    stats_callback=self.increment_stat
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                f_oa = executor.submit(run_oa)
+                f_cr = executor.submit(run_cr)
+                oa_list = f_oa.result()
+                cr_list = f_cr.result()
+            return oa_list, cr_list
+        else:
+            logging.info(f"Starting API discovery (OpenAlex) from {self.config.START_DATE} to {self.config.END_DATE}...")
+            oa_list = self.api_client.harvest_openalex(
                 self.config.START_DATE, 
                 self.config.END_DATE, 
                 self.config.TARGET_AFFIL,
                 stats_callback=self.increment_stat
             )
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            f_oa = executor.submit(run_oa)
-            f_cr = executor.submit(run_cr)
-            oa_list = f_oa.result()
-            cr_list = f_cr.result()
-        return oa_list, cr_list
+            return oa_list, []
 
     def deduplicate_and_merge(self, openalex_list, crossref_list):
+        if not crossref_list:
+            logging.info(f"--- OpenAlex Discovery Complete: {len(openalex_list)} items found ---")
+            unique_map = {}
+            for i in openalex_list:
+                if i['doi']: unique_map[i['doi']] = i
+                else: unique_map[f"title:{normalize_string(i['title'])}"] = i
+            return list(unique_map.values())
+
         logging.info(f"--- Merging: {len(openalex_list)} OpenAlex items + {len(crossref_list)} Crossref items ---")
         
         unique_map = {}

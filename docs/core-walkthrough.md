@@ -1,3 +1,5 @@
+# HarvesterEngine Class Walkthrough
+
 Here is a detailed walkthrough of the HarvesterEngine class (located in src/fedharv/core.py), explaining what it does and how it orchestrates the overall harvesting process:
 
 1. Purpose & Initialization (__init__, setup_logging, init_stats)
@@ -11,7 +13,7 @@ Concurrency Setup: It initializes thread-safe locks (self.locks) to safely updat
 
 Statistics Initialization: It prepares a large internal dictionary (self.STATS) to track metrics like duplicates, Open Access (OA) types (Gold, Green, Hybrid, Diamond), and API success rates.
 
-2. Main Entry Point (run method)
+1. Main Entry Point (run method)
 The run(dry_run=False, resume=False) method acts as the control center:
 
 Directory Preparation: Depending on the --resume flag passed from run_harvester.py, it either preserves the existing output directory or performs a robust cleanup to start fresh.
@@ -24,12 +26,12 @@ Dry Run Check: If the --dry-run flag is active, execution cleanly halts here bef
 
 Processing: If proceeding, it triggers process_items().
 
-3. API Discovery & Merging (discover, deduplicate_and_merge)
-discover(): Fires up a ThreadPoolExecutor (with 2 workers) to simultaneously query the OpenAlex and Crossref APIs for records matching the target affiliation within the configured date range.
+1. API Discovery & Merging (discover, deduplicate_and_merge)
+discover(): Queries the OpenAlex API as the primary discovery engine for records matching the target affiliation within the configured date range (using OpenAlex's automated ROR/institution mapping). If EnableCrossrefDiscovery is enabled in configuration, it queries both OpenAlex and Crossref concurrently using a ThreadPoolExecutor.
 
-deduplicate_and_merge(): Takes the two lists and merges them into a single, deduplicated list. It prefers a DOI match but falls back to matching normalized titles to prevent fetching the same paper twice.
+deduplicate_and_merge(): Deduplicates candidate records by DOI (falling back to normalized titles). If Crossref discovery is enabled, it merges both source lists without duplicate records.
 
-4. Concurrent Enrichment & Processing (process_items, process_item, fetch_enrichment_batch)
+1. Concurrent Enrichment & Processing (process_items, process_item, fetch_enrichment_batch)
 
 process_items(final_list): Iterates over the deduplicated list using a ThreadPoolExecutor with 15 concurrent threads, feeding each item into process_item(idx, item).
 
@@ -47,7 +49,7 @@ PDF Fetching: Determines which folder the item belongs to (e.g., Items_With_PDF,
 
 Playwright Fallback: If the standard Python HTTP requests fail to download the PDF, the engine appends the item to a playwright_queue to be handled by a headless browser later, rather than blocking the fast processing threads.
 
-5. Finalizing Output (finalize_item)
+1. Finalizing Output (finalize_item)
 Whether called immediately upon a successful/failed HTTP download or later by the Playwright fallback queue, finalize_item() finishes the job:
 
 Writing Metadata: It uses MetadataExporter to write DSpace Simple Archive Format (SAF) metadata via write_saf().
@@ -56,15 +58,15 @@ Logging CSV & RIS: It securely locks the csv and ris threads, appending rows ind
 
 Folder Moving: Depending on the PDF success state, it appropriately moves the item to Items_With_PDF or Items_Only_Link.
 
-6. Cleanup & Summary (cleanup_empty_collection_dirs, generate_summary)
+1. Cleanup & Summary (cleanup_empty_collection_dirs, generate_summary)
 
 Once all items and the headless Playwright queue are finished, the engine runs final cleanup tasks:
 
 Pruning: It scans the output directories and removes any generated department folders that ended up empty.
 
-Reporting: It calls generate_summary() which outputs a harvest_summary.txt of all execution stats (e.g., success rates, OA types found). It also outputs an Author Registry and a 
-
+Reporting: It calls generate_summary() which outputs a harvest_summary.txt of all execution stats (e.g., success rates, OA types found). It also outputs an Author Registry and a
 Department-Publisher breakdown report.
+
 How it interacts with the rest of the script:
 run_harvester.py manages the User Interface/CLI. It parses commands (--config, --dry-run) and boots up the HarvesterEngine.
 

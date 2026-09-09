@@ -234,6 +234,7 @@ class ConfigManager:
             self.END_DATE = self.config.get('Search', 'EndDate')
             self.TARGET_AFFIL = self.config.get('Search', 'Affiliation')
             self.STRICT_AFFILIATION_MATCH = self.config.getboolean('Search', 'StrictAffiliationMatch', fallback=True)
+            self.ENABLE_CROSSREF_DISCOVERY = self.config.getboolean('Search', 'EnableCrossrefDiscovery', fallback=False)
 
             # Validate the dates pulled from the config
             validate_date(self.START_DATE)
