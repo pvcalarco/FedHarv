@@ -46,7 +46,6 @@ The result is a DSpace-ready output bundle with consistent metadata and import h
 - **CrossRef**: Author affiliations, funding information, and publisher data.
 - **DataCite**: Abstracts, datasets, and extended metadata.
 - **DOAJ**: Journal classification and APC information.
-- **Sherpa Romeo**: Copyright and self-archiving policies.
 - **Unpaywall**: Comprehensive OA status and licensing data.
 
 ### 📄 **PDF Discovery Pipeline**
@@ -112,7 +111,7 @@ FedHarv/
 
 3. **`api.py` (`APIClient`)**
    - Sets up a pooled `requests.Session` with retry policies and per-host sliding-window rate limiting with `Retry-After` handling (`rate_limited_get`).
-   - Queries OpenAlex, CrossRef, Unpaywall, Sherpa Romeo, DataCite, DOAJ, and DSpace duplicate checks (`check_dspace_duplicate`).
+   - Queries OpenAlex, CrossRef, Unpaywall, DataCite, DOAJ, and DSpace duplicate checks (`check_dspace_duplicate`).
 
 4. **`pdf.py` (`PDFDownloader`)**
    - Implements the waterfall download workflow with URL scheme validation and download size caps.
@@ -175,7 +174,6 @@ OPENALEX_EMAIL=your-email@example.com
 OPENALEX_API_KEY=your-openalex-key        # Optional: OpenAlex API key
 SCOPUS_API_KEY=your-elsevier-scopus-key   # Optional: For Scopus PDF extraction
 CROSSREF_TOKEN=your-crossref-token        # Optional: CrossRef Plus API token
-SHERPA_API_KEY=your-sherpa-key            # Optional: Sherpa Romeo API key
 ```
 
 ### Configuration File (`src/config.ini`)
@@ -189,9 +187,9 @@ EndDate=2025-03-31
 Affiliation=University of Windsor
 
 [Authentication]
-SherpaKey=your-sherpa-key
 ScopusKey=  # Overrides environment variable if set
 CrossrefPlusToken=
+OpenAlexKey=
 
 [General]
 Email=pcalarco@uwindsor.ca
@@ -334,7 +332,7 @@ FedHarv_Output/
 - Ensure `src/config.ini` and `.env` are present and correctly populated.
 - If running from repository root, `python src/run_harvester.py` will use `config.ini` and fall back to `src/config.ini` when needed.
 - If browser fallback fails, reinstall Playwright dependencies with `playwright install chromium`.
-- Verify API credentials (OpenAlex email, CrossRef token, Scopus key, Sherpa key) when metadata or PDF discovery is incomplete.
+- Verify API credentials (OpenAlex email/key, CrossRef token, Scopus key) when metadata or PDF discovery is incomplete.
 
 ---
 
@@ -352,6 +350,6 @@ Contributions are welcome! Please follow these guidelines:
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the [LICENSE](LICENSE) file for details.
 
 ---
-**Version**: 1.1.3 (Unreleased)  
+**Version**: 1.2.0  
 **Maintainer**: Pascal V. Calarco  
 **Contact**: pcalarco@uwindsor.ca

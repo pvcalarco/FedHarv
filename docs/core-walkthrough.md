@@ -39,7 +39,7 @@ process_item() Logic per Paper:
 
 DSpace Check: Pings the local DSpace instance to see if the item already exists in the repository (discarding it if found).
 
-Enrichment: Calls fetch_enrichment_batch(), which uses another nested 4-worker thread pool to query Crossref, Unpaywall, Sherpa, DataCite, and DOAJ in parallel for missing metadata, licenses, and OA status.
+Enrichment: Runs staged enrichment (`_fetch_primary_enrichment` and `_fetch_secondary_enrichment`) to query CrossRef (reusing raw payloads when already discovered via CrossRef), Unpaywall, DOAJ, and—only for kept items that need it—DataCite for missing metadata, licenses, and OA status.
 
 Filtering: Examines the OA status. If a paper is marked as "Closed," "Bronze," or "Unknown," it is skipped.
 

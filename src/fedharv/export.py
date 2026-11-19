@@ -52,7 +52,6 @@ def map_to_dublin_core(item, enrich, all_affils, paper_orcids):
         if lic_uri:
             add("dc", "rights", "uri", lic_uri)
 
-    add("dc", "rights", "policy", enrich.get("sherpa_uri"))
     for funder in enrich.get("funders") or []:
         add("dc", "description", "sponsorship", funder)
     for aff in all_affils or []:
@@ -215,7 +214,7 @@ class MetadataExporter:
 
     CSV_FIELDNAMES = [
         "DOI", "Title", "ISSN", "Doc_Type", "Source", "Folder_Type",
-        "Dept", "PDF_Status", "PDF_Source", "Sherpa_Policy", "OA_Status",
+        "Dept", "PDF_Status", "PDF_Source", "OA_Status",
     ]
 
     def __init__(self, output_dir, csv_file, ris_file, author_file, publisher_report_file, institution_name):

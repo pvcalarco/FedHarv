@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import datetime
-import json
 import logging
 import threading
 import time
@@ -20,7 +19,6 @@ from .config import (
     OPENALEX_INST_URL,
     OPENALEX_WORKS_URL,
     RATE_LIMIT_PERIOD,
-    SHERPA_API_URL,
     UNPAYWALL_API,
     __version__,
 )
@@ -313,30 +311,6 @@ class APIClient:
             message = safe_json_dict(r.json()).get("message", {})
             return parse_crossref_message(message)
         return {}
-
-    @safe_call(default=None, log_errors=True)
-    @cached_api_call("sherpa")
-    def fetch_sherpa_policy(self, issn):
-        if not self.config.SHERPA_KEY or not issn:
-            return None
-        r = rate_limited_get(
-            SHERPA_API_URL,
-            session=self.SESSION,
-            params={
-                "item-type": "publication",
-                "format": "json",
-                "limit": "1",
-                "api-key": self.config.SHERPA_KEY,
-                "filter": json.dumps([["issn", "equals", issn]]),
-            },
-            timeout=10,
-        )
-        if r.status_code == 200:
-            data = safe_json_dict(r.json())
-            items = ensure_list_of_dicts(data.get("items"))
-            if items:
-                return items[0].get("uri")
-        return ""
 
     @safe_call(default={}, log_errors=True)
     @cached_api_call("datacite")

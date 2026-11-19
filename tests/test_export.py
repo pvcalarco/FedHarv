@@ -28,7 +28,7 @@ def test_map_to_dublin_core_uses_fallback_doi_from_crossref_raw():
         "norm_authors": ["Doe, Jane"],
         "doctype": "Article",
     }
-    enrich = {"funders": [], "sherpa_uri": None}
+    enrich = {"funders": []}
 
     md = map_to_dublin_core(item, enrich, ["Example University"], ["0000-0001-2345-6789"])
 
@@ -48,7 +48,6 @@ def test_map_to_dublin_core_adds_cc_license_label_from_uri():
     enrich = {
         "license": "https://creativecommons.org/licenses/by/4.0/",
         "funders": [],
-        "sherpa_uri": None,
     }
 
     md = map_to_dublin_core(item, enrich, [], [])
@@ -65,7 +64,7 @@ def test_map_to_dublin_core_does_not_fabricate_cc_by_for_diamond_without_license
         "norm_authors": [],
         "doctype": "Article",
     }
-    enrich = {"license": None, "funders": [], "sherpa_uri": None}
+    enrich = {"license": None, "funders": []}
 
     md = map_to_dublin_core(item, enrich, [], [])
 

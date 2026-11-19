@@ -360,14 +360,10 @@ class HarvesterEngine:
         return cr, upw, doaj_data
 
     def _fetch_secondary_enrichment(self, item):
-        """Fetch Sherpa and DataCite only for kept items that need them."""
+        """Fetch DataCite only for kept items that need an abstract or dataset metadata."""
         doi = item.get("doi")
-        issn = item.get("issn")
-
-        sherpa = self.api_client.fetch_sherpa_policy(issn) if (self.config.SHERPA_KEY and issn) else None
         needs_datacite = bool(doi) and (not item.get("openalex_abstract") or item.get("doctype") == "Dataset")
-        dc_data = self.api_client.fetch_datacite_data(doi) if needs_datacite else {}
-        return sherpa or None, dc_data
+        return self.api_client.fetch_datacite_data(doi) if needs_datacite else {}
 
     def _classify_route(self, item, upw):
         """Determine output folder and whether Green OA has a direct PDF URL."""
@@ -486,7 +482,7 @@ class HarvesterEngine:
                 return None
 
             # Stage 2: Secondary enrichment only for kept items
-            sherpa, dc_data = self._fetch_secondary_enrichment(item)
+            dc_data = self._fetch_secondary_enrichment(item)
             if dc_data.get("abstract"):
                 with self.locks["stats"]:
                     self.STATS["enriched_datacite"] += 1
@@ -494,7 +490,6 @@ class HarvesterEngine:
             enrich = {
                 "publisher": cr.get("publisher"),
                 "license": self._resolve_license(item, cr, upw, doaj_data),
-                "sherpa_uri": sherpa,
                 "abstract": dc_data.get("abstract") or item.get("openalex_abstract"),
                 "funders": cr.get("funders", []),
                 "authors": cr.get("authors", []),
@@ -603,7 +598,6 @@ class HarvesterEngine:
                 "Dept": dept,
                 "PDF_Status": "OK" if pdf_success else "Missing",
                 "PDF_Source": source,
-                "Sherpa_Policy": enrich.get("sherpa_uri") or "",
                 "OA_Status": item.get("oa_status"),
             })
 

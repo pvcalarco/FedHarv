@@ -9,7 +9,6 @@ def _write_test_config(tmp_path: Path) -> Path:
     cache_dir = (tmp_path / "cache").as_posix()
     config_text = f"""
 [Authentication]
-SherpaKey =
 ScopusKey =
 CrossrefPlusToken =
 OpenAlexKey =

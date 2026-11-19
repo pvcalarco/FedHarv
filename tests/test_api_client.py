@@ -9,7 +9,6 @@ class DummyConfig:
         self.CACHE_DIR = str(cache_dir)
         self.EMAIL_CONTACT = "test@example.org"
         self.CROSSREF_TOKEN = ""
-        self.SHERPA_KEY = ""
         self.SCOPUS_KEY = ""
         self.OPENALEX_KEY = openalex_key
 

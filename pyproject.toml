@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fedharv"
-version = "1.1.3"
+version = "1.2.0"
 description = "Federated Open Access Harvester for DSpace SAF workflows"
 readme = "README.md"
 license = { file = "LICENSE" }

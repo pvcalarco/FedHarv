@@ -8,13 +8,12 @@ import datetime
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-__version__ = "1.1.3"
+__version__ = "1.2.0"
 
 # API URL Constants
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 OPENALEX_INST_URL = "https://api.openalex.org/institutions"
 UNPAYWALL_API = "https://api.unpaywall.org/v2/"
-SHERPA_API_URL = "https://v2.sherpa.ac.uk/cgi/retrieve"
 CROSSREF_API_URL = "https://api.crossref.org/works"
 DATACITE_API_URL = "https://api.datacite.org/dois/"
 DOAJ_SEARCH_URL = "https://doaj.org/api/v2/search/journals/"
@@ -301,7 +300,6 @@ class ConfigManager:
                     f"StartDate ({self.START_DATE}) must be on or before EndDate ({self.END_DATE})."
                 )
 
-            self.SHERPA_KEY = self._get_optional("Authentication", "SherpaKey", env_vars=("SHERPA_API_KEY",))
             self.SCOPUS_KEY = self._get_optional("Authentication", "ScopusKey", env_vars=("SCOPUS_API_KEY",))
             self.CROSSREF_TOKEN = self._get_optional(
                 "Authentication", "CrossrefPlusToken", env_vars=("CROSSREF_TOKEN", "CROSSREF_PLUS_TOKEN")
