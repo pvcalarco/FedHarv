@@ -231,6 +231,9 @@ class APIClient:
     def setup_session(self):
         retry_strategy = Retry(
             total=3,
+            connect=1,
+            read=2,
+            status=3,
             backoff_factor=1,
             status_forcelist=[500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS"],
@@ -350,8 +353,7 @@ class APIClient:
     def harvest_openalex(self, start_date, end_date, target_affil, stats_callback=None):
         oa_filter = (
             f"from_publication_date:{start_date},"
-            f"to_publication_date:{end_date},"
-            "type:!dissertation"
+            f"to_publication_date:{end_date}"
         )
         logging.info(f"--- OpenAlex Discovery: {target_affil} ({oa_filter}) ---")
 
@@ -376,7 +378,7 @@ class APIClient:
         else:
             filter_val = f"institutions.display_name:{target_affil},{oa_filter}"
 
-        filter_val += ",is_oa:true,type:article|review|book|book-chapter|proceedings-article|report|dataset|preprint|letter|standard"
+        filter_val += ",is_oa:true,type:article|review|book|book-chapter|conference-paper|report|dataset|preprint|letter|standard"
         params = {"filter": filter_val, "per-page": 100, "cursor": "*", **self._openalex_auth_params()}
         logging.info(f"OpenAlex Filter: {filter_val}")
 

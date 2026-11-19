@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Package metadata via `pyproject.toml`, installable `fedharv` CLI (`fedharv.cli:main` / `python -m fedharv`), and `Dockerfile` container support.
 - Per-host sliding-window rate limiter with RFC 7231 `Retry-After` support (numeric seconds and HTTP-date).
 - OpenAlex API key support (`[Authentication] OpenAlexKey` / `OPENALEX_API_KEY`) and `.env` fallback for `CROSSREF_TOKEN`.
-- Companion utilities (`src/zip_saf_packages.py`, `src/process_zotero_rdf_to_folders.py`) and expanded unit test suite (43 tests).
+- Companion utilities (`src/zip_saf_packages.py`, `src/process_zotero_rdf_to_folders.py`) and expanded unit test suite (45 tests).
+- Per-host download concurrency cap (max 2 concurrent connections per host), circuit breaker for unreachable/timed-out servers, and OJS `/article/view/<id>/<galley>` → `/article/download/<id>/<galley>` heuristic.
 
 ### Security
 - Untracked local `src/config.ini` and ignored `.env`, `config.ini`, `src/config.ini`, `learned_patterns.json`, and `*.code-workspace`.
@@ -28,11 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `.env` fallback precedence when INI keys are blank, stripped brackets from `Email`, and validated `StartDate <= EndDate`.
 - Fixed case-insensitive DOI deduplication, percent-encoded DOIs in API URLs, preserved math comparisons while unescaping HTML entities in `clean_text`, guarded null/empty API fields, stopped fabricating CC-BY 4.0 URIs for Diamond OA without an explicit license, and prevented Playwright mid-batch errors from double-finalizing items.
 - Tightened `affiliation_matches_target` to reject generic substring false positives and prevented `learn_pattern_from_url` from overriding curated DOI prefixes or learning issue-specific URLs.
+- Fixed OpenAlex discovery filter by replacing deprecated `proceedings-article` with valid `conference-paper` and removing redundant `type:!dissertation`.
+- Restored direct execution of `src/fedharv/core.py` via package bootstrap and `fedharv.cli:main`.
 
 ### Changed
-- Removed nested `ThreadPoolExecutor` pools, routed all API calls through pooled `requests.Session`, staged enrichment to reuse CrossRef payloads and skip unnecessary DataCite calls, and isolated bounded LRU + atomic disk caching per `cache_dir`.
+- Removed nested `ThreadPoolExecutor` pools, routed all API calls through pooled `requests.Session` (with `connect=1` retry and `(10, 60)` connect/read timeouts), staged enrichment to reuse CrossRef payloads and skip unnecessary DataCite calls, and isolated bounded LRU + atomic disk caching per `cache_dir`.
 - Removed sunsetted Sherpa Romeo integration (`SherpaKey`, `SHERPA_API_URL`, `fetch_sherpa_policy`, and `Sherpa_Policy` CSV column) ahead of future OpenPolicyFinder support.
 - Unified config and PDF utilities across `run_harvester.py`, `process_zotero_pdfs.py`, and `zip_saf_packages.py`; moved runtime `learned_patterns.json` into `CACHE_DIR`; consolidated license to root `LICENSE` and removed stale/duplicate files (`docs/requirements.txt`, `docs/README.FedHarv.md`, stray `.code-workspace`).
+
 
 ## [1.1.2] - 2026-06-12
 

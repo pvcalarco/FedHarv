@@ -9,6 +9,12 @@ import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+if __package__ in (None, ""):
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    __package__ = "fedharv"
+
 from .api import APIClient, check_dspace_duplicate, parse_crossref_message
 from .config import ConfigManager
 from .export import MetadataExporter, generate_import_scripts, map_to_dublin_core, write_saf
@@ -251,7 +257,8 @@ class HarvesterEngine:
                 seen_titles.add(title_key)
                 crossref_new += 1
 
-        logging.info(f"--- Deduplication Complete: {crossref_new} new items added from Crossref ---")
+        if crossref_list:
+            logging.info(f"--- Deduplication Complete: {crossref_new} new items added from Crossref ---")
         return list(unique_map.values())
 
     def _iter_target_authors(self, item, cr):
@@ -419,7 +426,11 @@ class HarvesterEngine:
         pdf_success, source = self.pdf_downloader.fetch_pdf_with_waterfall(
             item, enrich, upw, landing_url, temp_pdf
         )
-        should_defer = (not pdf_success) and bool(landing_url)
+        should_defer = (
+            (not pdf_success)
+            and bool(landing_url)
+            and not self.pdf_downloader.is_host_tripped(landing_url)
+        )
         return pdf_success, source, landing_url, temp_pdf, dest_pdf, should_defer
 
     def process_item(self, idx, item):
@@ -738,3 +749,10 @@ class HarvesterEngine:
             self.process_items(final_list)
         finally:
             self.api_client.close()
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    from .cli import main
+
+    _sys.exit(main())

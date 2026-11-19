@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -7,11 +9,19 @@ import tempfile
 import threading
 from urllib.parse import urljoin, urlparse
 
+import requests
+
 from .config import DOI_PDF_PATTERNS, DOMAIN_URL_TRANSFORMS
 from .utils import encode_doi_for_url, is_safe_http_url
 
 MAX_PDF_BYTES = 100 * 1024 * 1024  # 100 MB cap per downloaded PDF
 DOWNLOAD_CHUNK_SIZE = 65536
+CONNECT_TIMEOUT = 10
+READ_TIMEOUT = 60
+META_TIMEOUT = (CONNECT_TIMEOUT, 15)
+DOWNLOAD_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
+MAX_CONCURRENT_PER_HOST = 2
+HOST_CONNECT_FAILURE_THRESHOLD = 3
 
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -24,6 +34,92 @@ _ISSUE_SPECIFIC_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Match OJS galley viewer URLs: .../article/view/<article_id>/<galley_id>
+_OJS_ARTICLE_VIEW_GALLEY_RE = re.compile(r"/article/view/([^/?#]+/[^/?#]+)")
+
+_ACTIVE_HOST_TRACKER = contextvars.ContextVar("_ACTIVE_HOST_TRACKER", default=None)
+
+
+class HostHealthTracker:
+    """Per-host concurrency limiter and circuit breaker for unreachable/timed-out servers."""
+
+    def __init__(self, max_concurrent=MAX_CONCURRENT_PER_HOST, failure_threshold=HOST_CONNECT_FAILURE_THRESHOLD):
+        self.max_concurrent = max_concurrent
+        self.failure_threshold = failure_threshold
+        self._lock = threading.Lock()
+        self._semaphores = {}
+        self._failures = {}
+        self._tripped = set()
+
+    @staticmethod
+    def _host_of(url):
+        if not url:
+            return ""
+        return (urlparse(url).netloc or "").lower()
+
+    def is_tripped(self, url):
+        host = self._host_of(url)
+        if not host:
+            return False
+        with self._lock:
+            return host in self._tripped
+
+    def record_reachable(self, url):
+        host = self._host_of(url)
+        if not host:
+            return
+        with self._lock:
+            self._failures.pop(host, None)
+
+    def record_connect_failure(self, url):
+        host = self._host_of(url)
+        if not host:
+            return
+        should_log = False
+        with self._lock:
+            count = self._failures.get(host, 0) + 1
+            self._failures[host] = count
+            if count >= self.failure_threshold and host not in self._tripped:
+                self._tripped.add(host)
+                should_log = True
+        if should_log:
+            logging.warning(
+                f"Host '{host}' unreachable after {self.failure_threshold} consecutive connection failures; "
+                "skipping further download/Playwright attempts for this host."
+            )
+
+    @contextlib.contextmanager
+    def slot(self, url):
+        host = self._host_of(url)
+        sem = None
+        if host:
+            with self._lock:
+                sem = self._semaphores.get(host)
+                if sem is None:
+                    sem = threading.BoundedSemaphore(self.max_concurrent)
+                    self._semaphores[host] = sem
+        token = _ACTIVE_HOST_TRACKER.set(self)
+        if sem is not None:
+            sem.acquire()
+        try:
+            yield
+        finally:
+            if sem is not None:
+                sem.release()
+            _ACTIVE_HOST_TRACKER.reset(token)
+
+
+def _report_host_reachable(url):
+    tracker = _ACTIVE_HOST_TRACKER.get()
+    if tracker is not None:
+        tracker.record_reachable(url)
+
+
+def _report_host_connect_failure(url):
+    tracker = _ACTIVE_HOST_TRACKER.get()
+    if tracker is not None:
+        tracker.record_connect_failure(url)
+
 
 def resolve_url(url, session):
     if not is_safe_http_url(url):
@@ -32,9 +128,9 @@ def resolve_url(url, session):
         return url
     headers = {"User-Agent": BROWSER_USER_AGENT}
     try:
-        r = session.head(url, allow_redirects=True, timeout=15, headers=headers)
+        r = session.head(url, allow_redirects=True, timeout=META_TIMEOUT, headers=headers)
         if r.status_code in (405, 403):
-            with session.get(url, stream=True, allow_redirects=True, timeout=15, headers=headers) as get_resp:
+            with session.get(url, stream=True, allow_redirects=True, timeout=META_TIMEOUT, headers=headers) as get_resp:
                 return get_resp.url
         return r.url
     except Exception as e:
@@ -55,7 +151,10 @@ def download_file_stream(url, path, session, extra_headers=None, max_bytes=MAX_P
         headers.update(extra_headers)
 
     try:
-        with session.get(url, stream=True, timeout=60, allow_redirects=True, headers=headers, verify=verify) as r:
+        with session.get(
+            url, stream=True, timeout=DOWNLOAD_TIMEOUT, allow_redirects=True, headers=headers, verify=verify
+        ) as r:
+            _report_host_reachable(url)
             if r.status_code != 200:
                 logging.debug(f"download_file_stream: HTTP {r.status_code} for {url}")
                 return False
@@ -106,6 +205,10 @@ def download_file_stream(url, path, session, extra_headers=None, max_bytes=MAX_P
                         os.remove(part_path)
                     except OSError:
                         pass
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+        _report_host_connect_failure(url)
+        logging.debug(f"download_file_stream: Connection error downloading {url}: {e}")
+        return False
     except Exception as e:
         logging.debug(f"download_file_stream: Exception downloading {url}: {e}")
         return False
@@ -161,11 +264,15 @@ def fetch_html_meta_pdf_link(landing_url, session):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
     try:
-        r = session.get(landing_url, headers=headers, timeout=15, allow_redirects=True)
+        r = session.get(landing_url, headers=headers, timeout=META_TIMEOUT, allow_redirects=True)
+        _report_host_reachable(landing_url)
         if r.status_code == 200:
             page_url = getattr(r, "url", None) or landing_url
             return extract_pdf_url_from_html(r.text, page_url)
         logging.debug(f"fetch_html_meta_pdf_link: HTTP {r.status_code} for {landing_url}")
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+        _report_host_connect_failure(landing_url)
+        logging.debug(f"fetch_html_meta_pdf_link: Connection error fetching {landing_url}: {e}")
     except Exception as e:
         logging.debug(f"fetch_html_meta_pdf_link: Exception fetching {landing_url}: {e}")
     return None
@@ -211,6 +318,10 @@ def apply_publisher_heuristics(landing_url, doi=None, learned_patterns=None):
                 except Exception:
                     pass
 
+        # OJS galley viewer URLs: .../article/view/<id>/<galley> -> .../article/download/<id>/<galley>
+        if _OJS_ARTICLE_VIEW_GALLEY_RE.search(landing_url):
+            return _OJS_ARTICLE_VIEW_GALLEY_RE.sub(r"/article/download/\1", landing_url, count=1)
+
     return None
 
 
@@ -222,7 +333,11 @@ class PDFDownloader:
         self.patterns_file = patterns_file
         self.patterns = {}
         self._patterns_lock = threading.Lock()
+        self.host_tracker = HostHealthTracker()
         self.load_learned_patterns()
+
+    def is_host_tripped(self, url):
+        return self.host_tracker.is_tripped(url)
 
     def load_learned_patterns(self):
         if not self.patterns_file or not os.path.exists(self.patterns_file):
@@ -318,13 +433,14 @@ class PDFDownloader:
         tried_urls = set()
 
         def _try_download(url, extra_headers=None):
-            if not url:
+            if not url or self.host_tracker.is_tripped(url):
                 return False
             key = (url, tuple(sorted((extra_headers or {}).items())))
             if key in tried_urls:
                 return False
             tried_urls.add(key)
-            return download_file_stream(url, temp_pdf, session, extra_headers=extra_headers)
+            with self.host_tracker.slot(url):
+                return download_file_stream(url, temp_pdf, session, extra_headers=extra_headers)
 
         # 1. OpenAlex
         if _try_download(item.get("pdf_url")):
@@ -354,8 +470,9 @@ class PDFDownloader:
                 return True, "Heuristics"
 
         # 6. Meta Tag Scraper (from landing URL)
-        if landing_url:
-            s_url = fetch_html_meta_pdf_link(landing_url, session)
+        if landing_url and not self.host_tracker.is_tripped(landing_url):
+            with self.host_tracker.slot(landing_url):
+                s_url = fetch_html_meta_pdf_link(landing_url, session)
             if _try_download(s_url):
                 self.learn_pattern_from_url(doi, s_url)
                 return True, "Meta-Scraper"

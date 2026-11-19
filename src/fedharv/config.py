@@ -130,6 +130,7 @@ DOCTYPE_MAPPINGS = {
     "review": "Article",
     "chapter": "Book Chapter", "ch": "Book Chapter", "book-chapter": "Book Chapter",
     "book": "Book", "bk": "Book",
+    "conference-paper": "Conference Paper",
     "conference": "Conference Paper", "proceeding": "Conference Paper", "cp": "Conference Paper",
     "data": "Dataset", "dataset": "Dataset", "dp": "Dataset",
     "report": "Technical Report", "rp": "Technical Report",

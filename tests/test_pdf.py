@@ -256,3 +256,37 @@ def test_process_playwright_queue_does_not_double_finalize_on_mid_batch_error():
             sys.modules["playwright.sync_api"] = old_sa
 
     assert [c[0] for c in calls] == [0, 1]
+
+
+def test_apply_publisher_heuristics_transforms_ojs_galley_view_to_download():
+    ojs_view = "https://jtl.uwindsor.ca/index.php/jtl/article/view/11397/6285"
+    assert (
+        apply_publisher_heuristics(ojs_view)
+        == "https://jtl.uwindsor.ca/index.php/jtl/article/download/11397/6285"
+    )
+
+
+def test_host_circuit_breaker_trips_after_consecutive_connect_timeouts(tmp_path):
+    import requests
+
+    class _TimeoutSession:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *_a, **_kw):
+            self.calls += 1
+            raise requests.exceptions.ConnectTimeout("timed out")
+
+    session = _TimeoutSession()
+    api_client = DummyAPIClient()
+    api_client.SESSION = session
+    downloader = PDFDownloader(api_client, patterns_file="")
+
+    for i in range(5):
+        item = {"pdf_url": f"https://jtl.uwindsor.ca/index.php/jtl/article/download/{i}/1", "doi": None, "publisher": "OJS"}
+        ok, _ = downloader.fetch_pdf_with_waterfall(item, {}, {}, None, str(tmp_path / f"t{i}.pdf"))
+        assert ok is False
+
+    # Should trip after 3 consecutive connect timeouts and skip items 3 and 4
+    assert session.calls == 3
+    assert downloader.is_host_tripped("https://jtl.uwindsor.ca/index.php/jtl/article/view/999") is True

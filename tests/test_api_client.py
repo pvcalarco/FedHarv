@@ -154,6 +154,10 @@ def test_harvest_openalex_passes_api_key_when_configured(tmp_path, monkeypatch):
 
     assert seen_params
     assert all(p.get("api_key") == "secret-oa-key" for _, p in seen_params)
+    works_filters = [p["filter"] for url, p in seen_params if "works" in url]
+    assert works_filters
+    assert "conference-paper" in works_filters[0]
+    assert "proceedings-article" not in works_filters[0]
 
 
 def test_parse_retry_after_handles_numeric_and_http_date():
