@@ -5,12 +5,13 @@ from fedharv.api import APIClient
 
 
 class DummyConfig:
-    def __init__(self, cache_dir):
+    def __init__(self, cache_dir, openalex_key=""):
         self.CACHE_DIR = str(cache_dir)
         self.EMAIL_CONTACT = "test@example.org"
         self.CROSSREF_TOKEN = ""
         self.SHERPA_KEY = ""
         self.SCOPUS_KEY = ""
+        self.OPENALEX_KEY = openalex_key
 
 
 class FakeResponse:
@@ -24,10 +25,10 @@ class FakeResponse:
         return self._payload
 
 
-def _new_client(tmp_path: Path):
+def _new_client(tmp_path: Path, openalex_key=""):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return APIClient(DummyConfig(cache_dir))
+    return APIClient(DummyConfig(cache_dir, openalex_key=openalex_key))
 
 
 def test_fetch_crossref_data_parses_core_fields(tmp_path, monkeypatch):
@@ -87,7 +88,7 @@ def test_fetch_crossref_data_retries_once_on_429(tmp_path, monkeypatch):
     data = client.fetch_crossref_data("10.1000/test-429")
 
     assert calls["count"] == 2
-    assert calls["slept"] > 0
+    assert calls["slept"] == 1.0
     assert data["publisher"] == "Retry OK"
 
 
@@ -114,3 +115,51 @@ def test_fetch_unpaywall_data_uses_safe_json_dict_for_list_payload(tmp_path, mon
 
     data = client.fetch_unpaywall_data("10.1000/test-upw")
     assert data == {"oa_status": "gold"}
+
+
+def test_harvest_crossref_handles_empty_lists_safely(tmp_path, monkeypatch):
+    client = _new_client(tmp_path)
+    payload = {
+        "message": {
+            "items": [
+                {
+                    "DOI": "10.1000/EmptyLists",
+                    "title": [],
+                    "container-title": [],
+                    "ISSN": [],
+                    "published-print": {"date-parts": [[]]},
+                }
+            ],
+            "next-cursor": "*",
+        }
+    }
+    monkeypatch.setattr(client.SESSION, "get", lambda *_a, **_kw: FakeResponse(200, payload=payload))
+
+    results = client.harvest_crossref("2026-01-01", "2026-01-31", "Example University")
+    assert len(results) == 1
+    assert results[0]["doi"] == "10.1000/emptylists"
+    assert results[0]["title"] == "No Title"
+    assert results[0]["date"] == "2026-01-01"
+
+
+def test_harvest_openalex_passes_api_key_when_configured(tmp_path, monkeypatch):
+    client = _new_client(tmp_path, openalex_key="secret-oa-key")
+    seen_params = []
+
+    def _fake_get(url, params=None, **_kw):
+        seen_params.append((url, dict(params or {})))
+        return FakeResponse(200, payload={"results": [], "meta": {}})
+
+    monkeypatch.setattr(client.SESSION, "get", _fake_get)
+    client.harvest_openalex("2026-01-01", "2026-01-31", "Example University")
+
+    assert seen_params
+    assert all(p.get("api_key") == "secret-oa-key" for _, p in seen_params)
+
+
+def test_parse_retry_after_handles_numeric_and_http_date():
+    assert api_module._parse_retry_after("3", 1) == 3.0
+    assert api_module._parse_retry_after("999", 1) == 60.0
+    # Past HTTP-date clamps to minimum 0.5s rather than raising
+    assert api_module._parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT", 5) == 0.5
+    assert api_module._parse_retry_after("not-a-date", 5) == 5

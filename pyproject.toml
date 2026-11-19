@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fedharv"
+version = "1.1.3"
+description = "Federated Open Access Harvester for DSpace SAF workflows"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [{ name = "Pascal V. Calarco", email = "pcalarco@uwindsor.ca" }]
+dependencies = [
+    "playwright>=1.54.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.0",
+]
+
+[project.scripts]
+fedharv = "fedharv.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

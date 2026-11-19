@@ -1,6 +1,4 @@
 # FedHarv runtime dependencies (UTF-8)
-backoff>=2.2.1
 playwright>=1.54.0
 python-dotenv>=1.0.1
-ratelimit>=2.2.1
 requests>=2.32.0

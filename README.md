@@ -1,7 +1,7 @@
 # FedHarv: Federated Open Access Harvester
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 FedHarv is a modular harvester for open access scholarly content. It discovers, enriches, and packages records (with PDFs when available) for DSpace workflows.
 
@@ -82,12 +82,12 @@ FedHarv is structured as a modular Python package divided into separate layers o
 ```
 FedHarv/
 ├── docs/
-│   └── README.FedHarv.md
+│   └── README.Zotero_Processor.md
 ├── src/
 │   ├── run_harvester.py              # Entrypoint script
 │   ├── config.example.FedHarv.ini    # Config template
-│   ├── config.ini                    # Local runtime config (optional)
-│   ├── process_zotero_pdfs.py
+│   ├── process_zotero_pdfs.py        # Zotero RIS PDF merger
+│   ├── zip_saf_packages.py           # DSpace SAF ZIP packager
 │   └── fedharv/                      # Package directory
 │       ├── __init__.py
 │       ├── config.py
@@ -101,26 +101,23 @@ FedHarv/
 ### Module Responsibilities
 
 1. **`config.py` (`ConfigManager`)**
-   - Loads `.env` file and CLI arguments.
-   - Parses the `config.ini` configuration.
-   - Contains global normalization maps like `DOCTYPE_MAPPINGS`, `OA_STATUS_MAPPINGS`, `LICENSE_URI_MAPPINGS`, and `CC_LICENSE_NAMES`.
-   - Defines domain URL transformers (`DOMAIN_URL_TRANSFORMS`) and hardcoded prefix heuristics (`DOI_PDF_PATTERNS`).
+   - Loads `.env` fallbacks and parses `config.ini` (raising `ConfigError` on invalid configuration).
+   - Contains global normalization maps (`DOCTYPE_MAPPINGS`, `OA_STATUS_MAPPINGS`, `LICENSE_URI_MAPPINGS`, `CC_LICENSE_NAMES`).
+   - Defines domain URL transformers (`DOMAIN_URL_TRANSFORMS`) and prefix heuristics (`DOI_PDF_PATTERNS`).
 
 2. **`utils.py`**
-   - Implements text cleaning and text index helpers (`clean_text`, `reconstruct_openalex_abstract`).
-   - Implements thread-safe caching decorators (`cached_api_call`, `load_from_cache`, `save_to_cache`) supporting local JSON serialization.
-   - Implements primary department and affiliation matcher (`determine_primary_department`).
+   - Implements text cleaning, DOI normalization, and OpenAlex abstract reconstruction (`clean_text`, `normalize_doi`, `reconstruct_openalex_abstract`).
+   - Implements thread-safe bounded LRU + atomic disk caching (`cached_api_call`, `load_from_cache`, `save_to_cache`).
+   - Implements primary department and affiliation matching (`determine_primary_department`, `affiliation_matches_target`).
 
 3. **`api.py` (`APIClient`)**
-   - Sets up a robust `requests.Session` with mountable retry policies.
-   - Implements the global `@limits` rate-limited and `@backoff` decorated HTTP GET function (`rate_limited_get`).
-   - Bundles queries to OpenAlex, CrossRef, Unpaywall, Sherpa Romeo, DataCite, and DOAJ.
-   - Implements DSpace duplicate checking (`check_dspace_duplicate`).
+   - Sets up a pooled `requests.Session` with retry policies and per-host sliding-window rate limiting with `Retry-After` handling (`rate_limited_get`).
+   - Queries OpenAlex, CrossRef, Unpaywall, Sherpa Romeo, DataCite, DOAJ, and DSpace duplicate checks (`check_dspace_duplicate`).
 
 4. **`pdf.py` (`PDFDownloader`)**
-   - Implements the waterfall download workflow.
+   - Implements the waterfall download workflow with URL scheme validation and download size caps.
    - Runs publisher URL transformations and HTML meta-tag scrapers.
-   - Houses the `PlaywrightFallback` automation logic, executing Chromium in headless mode to click PDF links and handle redirects.
+   - Runs sequential Playwright Chromium fallback (`process_playwright_queue`) for dynamic landing pages.
 
 5. **`export.py` (`MetadataExporter`)**
    - Implements Dublin Core schema mapper (`map_to_dublin_core`).
@@ -173,12 +170,12 @@ cp src/config.example.FedHarv.ini src/config.ini
 Create a `.env` file in the root directory for secure credentials:
 
 ```bash
-# Core authentication keys
+# Core authentication keys (used when corresponding config.ini fields are blank)
 OPENALEX_EMAIL=your-email@example.com
-SCOPUS_API_KEY=your-elsevier-scopus-key  # Optional: For Scopus PDF extraction
-
-# CrossRef Plus API Token (Optional: increases query limits)
-CROSSREF_TOKEN=your-crossref-token
+OPENALEX_API_KEY=your-openalex-key        # Optional: OpenAlex API key
+SCOPUS_API_KEY=your-elsevier-scopus-key   # Optional: For Scopus PDF extraction
+CROSSREF_TOKEN=your-crossref-token        # Optional: CrossRef Plus API token
+SHERPA_API_KEY=your-sherpa-key            # Optional: Sherpa Romeo API key
 ```
 
 ### Configuration File (`src/config.ini`)
@@ -352,7 +349,7 @@ Contributions are welcome! Please follow these guidelines:
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the `GNU AFFERO GENERAL PUBLIC LICENSE.md` file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the [LICENSE](LICENSE) file for details.
 
 ---
 **Version**: 1.1.3 (Unreleased)  

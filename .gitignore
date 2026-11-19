@@ -9,5 +9,14 @@ venv/
 # Tool caches
 .pytest_cache/
 
+# Local configuration and secrets
+.env
+config.ini
+src/config.ini
+*.code-workspace
+
 # Runtime artifacts
 Output/
+Output-*/
+FedHarv_Output/
+learned_patterns.json

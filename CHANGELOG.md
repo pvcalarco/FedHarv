@@ -9,12 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Interactive duplicate reporting during processing: when a DOI already exists in DSpace, the harvester now logs `[DUPLICATE] Found in DSpace: <doi> - <title>...`.
+- Package metadata via `pyproject.toml` and installable `fedharv` CLI entrypoint (`fedharv.cli:main`).
+- Per-host sliding-window rate limiter with RFC 7231 `Retry-After` support (numeric seconds and HTTP-date).
+- OpenAlex API key support (`[Authentication] OpenAlexKey` / `OPENALEX_API_KEY`) and `.env` fallbacks for `CROSSREF_TOKEN` and `SHERPA_API_KEY`.
+- Unit tests covering shell quoting, Zotero RIS path-traversal blocking, atomic downloads, URL transforms, CSV formula neutralization, and SAF ZIP packaging.
+
+### Security
+- Untracked local `src/config.ini` and ignored `.env`, `config.ini`, `src/config.ini`, `learned_patterns.json`, and `*.code-workspace`.
+- Quoted all arguments in generated `import_batch.sh` via `shlex.quote` (with `set -euo pipefail` and Unix LF line endings).
+- Blocked path traversal in Zotero RIS `L1` attachment paths and changed Zotero PDF downloads to fail closed on TLS verification errors (opt-in `--insecure`).
+- Validated `http`/`https` schemes, added a 100 MB PDF download size cap with atomic `.part` writes, neutralized CSV formula prefixes, and replaced `xml.dom.minidom` re-parsing with native `ET.indent`.
+
+### Fixed
+- Generated `import_batch.sh` after `process_items()` populates item directories, and made `--dry-run` strictly read-only without cleaning or writing files.
+- Fixed Green OA Unpaywall PDF detection to read `best_oa_location.url_for_pdf` (and omit `link.txt` when a PDF succeeds).
+- Fixed double-`/pdf/pdf/` publisher URL transforms (Wiley, SAGE, CDN Science Pub), SciELO query separators, and Cambridge trailing-slash handling.
+- Fixed `.env` fallback precedence when INI keys are blank, stripped brackets from `Email`, and validated `StartDate <= EndDate`.
+- Fixed case-insensitive DOI deduplication, percent-encoded DOIs in API URLs, preserved math comparisons while unescaping HTML entities in `clean_text`, guarded null/empty API fields, stopped fabricating CC-BY 4.0 URIs for Diamond OA without an explicit license, and prevented Playwright mid-batch errors from double-finalizing items.
+- Tightened `affiliation_matches_target` to reject generic substring false positives and prevented `learn_pattern_from_url` from overriding curated DOI prefixes or learning issue-specific URLs.
 
 ### Changed
-- Configuration resolution now supports a fallback path so running `src/run_harvester.py` from repository root can locate `src/config.ini` when `config.ini` is not present in the current working directory.
-- Green OA handling now attempts PDF download via Unpaywall when `best_oa_location.pdf_url` is a concrete PDF target.
-- Green OA Unpaywall links that are DOI resolver URLs (for example `https://doi.org/...`) are now skipped for PDF download attempts to avoid redundant resolver hops.
-- Green OA items remain in the `Green` output collection regardless of PDF download success.
+- Removed nested `ThreadPoolExecutor` pools, routed all API calls through pooled `requests.Session`, staged enrichment to reuse CrossRef payloads and skip unnecessary Sherpa/DataCite calls, and isolated bounded LRU + atomic disk caching per `cache_dir`.
+- Unified config and PDF utilities across `run_harvester.py`, `process_zotero_pdfs.py`, and `zip_saf_packages.py`; moved runtime `learned_patterns.json` into `CACHE_DIR`; consolidated license to root `LICENSE` and removed stale/duplicate files (`docs/requirements.txt`, `docs/README.FedHarv.md`, stray `.code-workspace`).
 
 ## [1.1.2] - 2026-06-12
 

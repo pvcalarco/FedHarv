@@ -1,59 +1,229 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import time
-import logging
-import requests
+import datetime
 import json
-from urllib3.util.retry import Retry
+import logging
+import threading
+import time
+from collections import deque
+from email.utils import parsedate_to_datetime
+from urllib.parse import urlparse
+
+import requests
 from requests.adapters import HTTPAdapter
-from ratelimit import limits, sleep_and_retry
-import backoff
+from urllib3.util.retry import Retry
 
 from .config import (
-    CALLS, RATE_LIMIT_PERIOD,
-    OPENALEX_WORKS_URL, OPENALEX_INST_URL,
-    UNPAYWALL_API, SHERPA_API_URL,
-    CROSSREF_API_URL, DATACITE_API_URL,
-    DOAJ_SEARCH_URL
+    CALLS,
+    CROSSREF_API_URL,
+    DATACITE_API_URL,
+    DOAJ_SEARCH_URL,
+    OPENALEX_INST_URL,
+    OPENALEX_WORKS_URL,
+    RATE_LIMIT_PERIOD,
+    SHERPA_API_URL,
+    UNPAYWALL_API,
+    __version__,
 )
 from .utils import (
-    safe_call, cached_api_call,
-    safe_json_dict, safe_get_dict,
-    ensure_list_of_dicts, deep_get,
-    normalize_oa_status, normalize_doctype,
-    reconstruct_openalex_abstract
+    cached_api_call,
+    deep_get,
+    encode_doi_for_url,
+    ensure_list_of_dicts,
+    normalize_doctype,
+    normalize_doi,
+    normalize_oa_status,
+    reconstruct_openalex_abstract,
+    safe_call,
+    safe_json_dict,
 )
 
-@sleep_and_retry
-@limits(calls=CALLS, period=RATE_LIMIT_PERIOD)
-@backoff.on_exception(backoff.expo, requests.exceptions.RequestException, max_tries=5)
-def rate_limited_get(url, session=None, params=None, headers=None, timeout=30):
+
+class _PerHostRateLimiter:
+    """Thread-safe sliding-window rate limiter isolated per upstream hostname."""
+
+    def __init__(self, max_calls=CALLS, period=RATE_LIMIT_PERIOD):
+        self.max_calls = max_calls
+        self.period = period
+        self._guard = threading.Lock()
+        self._buckets = {}
+
+    def _get_bucket(self, host):
+        with self._guard:
+            bucket = self._buckets.get(host)
+            if bucket is None:
+                bucket = (threading.Lock(), deque())
+                self._buckets[host] = bucket
+            return bucket
+
+    def acquire(self, url):
+        host = urlparse(url).netloc.lower() or "default"
+        lock, timestamps = self._get_bucket(host)
+        with lock:
+            now = time.monotonic()
+            while timestamps and now - timestamps[0] >= self.period:
+                timestamps.popleft()
+            if len(timestamps) >= self.max_calls:
+                wait_for = self.period - (now - timestamps[0])
+                if wait_for > 0:
+                    time.sleep(wait_for)
+                now = time.monotonic()
+                while timestamps and now - timestamps[0] >= self.period:
+                    timestamps.popleft()
+            timestamps.append(now)
+
+
+_HOST_LIMITER = _PerHostRateLimiter(max_calls=CALLS, period=RATE_LIMIT_PERIOD)
+
+
+def _parse_retry_after(header_val, fallback_seconds):
+    if not header_val:
+        return fallback_seconds
+    text = str(header_val).strip()
+    try:
+        parsed = float(text)
+        return max(0.5, min(parsed, 60.0))
+    except (TypeError, ValueError):
+        pass
+    try:
+        retry_dt = parsedate_to_datetime(text)
+        if retry_dt.tzinfo is None:
+            retry_dt = retry_dt.replace(tzinfo=datetime.timezone.utc)
+        delta = (retry_dt - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+        return max(0.5, min(delta, 60.0))
+    except (TypeError, ValueError, OverflowError):
+        return fallback_seconds
+
+
+def rate_limited_get(url, session=None, params=None, headers=None, timeout=30, max_tries=5):
     """
-    Universal rate-limited API GET request with exponential backoff retry.
-    Enforces: 1. Rate limiting (10 calls/sec)
-              2. Exponential backoff on request errors (max 5 retries)
+    Per-host rate-limited HTTP GET with bounded retries and Retry-After support.
     """
-    if session:
-        r = session.get(url, params=params, headers=headers, timeout=timeout)
-    else:
-        r = requests.get(url, params=params, headers=headers, timeout=timeout)
-    
-    if r.status_code == 429:
-        raise requests.exceptions.RequestException(f"Rate limit (429) from {url}")
-    return r
+    requester = session if session is not None else requests
+    last_exc = None
+
+    for attempt in range(max_tries):
+        _HOST_LIMITER.acquire(url)
+        try:
+            response = requester.get(url, params=params, headers=headers, timeout=timeout)
+        except requests.exceptions.SSLError:
+            raise
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            if attempt + 1 >= max_tries:
+                raise
+            time.sleep(min(2 ** attempt, 30))
+            continue
+
+        if response.status_code == 429:
+            if attempt + 1 >= max_tries:
+                return response
+            delay = _parse_retry_after(
+                response.headers.get("Retry-After"),
+                min(2 ** attempt, 30),
+            )
+            logging.warning(f"Rate limit (429) from {url}. Sleeping {delay}s (attempt {attempt + 1}/{max_tries})...")
+            time.sleep(delay)
+            continue
+
+        return response
+
+    if last_exc is not None:
+        raise last_exc
+    raise requests.exceptions.RequestException(f"Request failed after {max_tries} attempts: {url}")
+
 
 @safe_call(default=False, log_errors=True)
-def check_dspace_duplicate(doi, check_enabled, api_url):
-    if not check_enabled or not api_url or not doi: return False
-    try:
-        r = rate_limited_get(f"{api_url}/discover/search/objects", params={"query": f"dc.identifier.doi:{doi}", "dsoType": "ITEM"}, timeout=5)
-        total = deep_get(safe_json_dict(r.json()), ['_embedded', 'searchResult', 'page', 'totalElements'])
-        if r.status_code == 200 and total and int(total) > 0: return True
-    except Exception as e:
-        logging.warning(f"Error checking DSpace duplicate for {doi}: {e}")
+def check_dspace_duplicate(doi, check_enabled, api_url, session=None):
+    if not check_enabled or not api_url or not doi:
+        return False
+    clean_doi = normalize_doi(doi) or doi
+    url = f"{api_url.rstrip('/')}/discover/search/objects"
+    r = rate_limited_get(
+        url,
+        session=session,
+        params={"query": f"dc.identifier.doi:{clean_doi}", "dsoType": "ITEM"},
+        timeout=5,
+    )
+    if r.status_code == 200:
+        total = deep_get(safe_json_dict(r.json()), ["_embedded", "searchResult", "page", "totalElements"])
+        if total and int(total) > 0:
+            return True
     return False
 
+
+def parse_crossref_message(message):
+    """Extract normalized metadata fields from a CrossRef work message dict."""
+    if not isinstance(message, dict) or not message:
+        return {}
+
+    affs = [
+        a["name"]
+        for auth in ensure_list_of_dicts(message.get("author"))
+        for a in ensure_list_of_dicts(auth.get("affiliation"))
+        if a.get("name")
+    ]
+    funders = []
+    for f in ensure_list_of_dicts(message.get("funder")):
+        fname = f.get("name")
+        awards = [str(x) for x in (f.get("award") or []) if x]
+        if fname:
+            funders.append(f"{fname} (Award: {', '.join(awards)})" if awards else fname)
+
+    authors = []
+    for auth in ensure_list_of_dicts(message.get("author")):
+        family = auth.get("family")
+        given = auth.get("given")
+        if family and given:
+            authors.append(f"{family}, {given}")
+        elif family:
+            authors.append(family)
+        elif given:
+            authors.append(given)
+
+    crossref_pdf = None
+    for link in ensure_list_of_dicts(message.get("link")):
+        if link.get("content-type") == "application/pdf":
+            crossref_pdf = link.get("URL")
+            if link.get("intended-application") == "text-mining":
+                break
+
+    license_url = next(
+        (lic["URL"] for lic in ensure_list_of_dicts(message.get("license")) if lic.get("URL")),
+        None,
+    )
+
+    return {
+        "publisher": message.get("publisher"),
+        "license": license_url,
+        "affiliations": affs,
+        "funders": funders,
+        "authors": authors,
+        "crossref_pdf": crossref_pdf,
+        "raw_message": message,
+    }
+
+
+def _parse_crossref_date(item, fallback_year):
+    published_date = item.get("published-print") or item.get("published-online") or {}
+    raw_parts = published_date.get("date-parts")
+    date_parts = raw_parts[0] if isinstance(raw_parts, list) and raw_parts and isinstance(raw_parts[0], list) else []
+
+    def _int_part(idx, default_val):
+        if len(date_parts) > idx and date_parts[idx] is not None:
+            text = str(date_parts[idx]).strip()
+            if text.isdigit():
+                return int(text)
+        return default_val
+
+    year = _int_part(0, int(fallback_year))
+    month = max(1, min(12, _int_part(1, 1)))
+    day = max(1, min(31, _int_part(2, 1)))
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
 class APIClient:
-    """Consolidated API Client managing requests session, headers, and individual resource API requests."""
+    """Consolidated API Client managing requests session, headers, and upstream API queries."""
+
     def __init__(self, config):
         self.config = config
         self.cache_dir = config.CACHE_DIR
@@ -61,206 +231,240 @@ class APIClient:
 
     def setup_session(self):
         retry_strategy = Retry(
-            total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504], 
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
         )
         adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=30, pool_maxsize=30)
         self.SESSION = requests.Session()
         self.SESSION.mount("https://", adapter)
         self.SESSION.mount("http://", adapter)
-        
+
         self.HEADERS = {
-            "Accept": "application/json", 
-            "User-Agent": f"SAF-Harvester/16.1 (mailto:{self.config.EMAIL_CONTACT})" 
+            "Accept": "application/json",
+            "User-Agent": f"FedHarv/{__version__} (mailto:{self.config.EMAIL_CONTACT})",
         }
-        if self.config.CROSSREF_TOKEN:
+        if getattr(self.config, "CROSSREF_TOKEN", ""):
             self.HEADERS["Crossref-Plus-API-Token"] = f"Bearer {self.config.CROSSREF_TOKEN}"
 
         self.BROWSER_HEADERS = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Connection": "keep-alive"
+            "Connection": "keep-alive",
         }
 
-    @cached_api_call("doaj")
-    @safe_call(default={'is_doaj': False}, log_errors=True)
-    def fetch_doaj_data(self, issn):
-        if not issn: return {'is_doaj': False}
-        url = f"{DOAJ_SEARCH_URL}issn:{issn}"
-        r = rate_limited_get(url, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            if data.get('results') and len(data['results']) > 0:
-                result = data['results'][0]
-                bibjson = result.get('bibjson', {})
-                apc = bibjson.get('apc', {})
-                has_apc = apc.get('has_apc')
-                is_diamond = (has_apc is False)
-                licenses = bibjson.get('license', [])
-                license_type = licenses[0].get('type') if licenses else None
-                ret = {'is_doaj': True, 'is_diamond': is_diamond, 'license': license_type, 'title': bibjson.get('title')}
-                return ret
-        return {'is_doaj': False}
+    def close(self):
+        if getattr(self, "SESSION", None):
+            self.SESSION.close()
 
-    @cached_api_call("unpaywall")
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+        return False
+
+    @safe_call(default={"is_doaj": False}, log_errors=True)
+    @cached_api_call("doaj")
+    def fetch_doaj_data(self, issn):
+        if not issn:
+            return {"is_doaj": False}
+        url = f"{DOAJ_SEARCH_URL}issn:{issn}"
+        r = rate_limited_get(url, session=self.SESSION, headers=self.HEADERS, timeout=10)
+        if r.status_code == 200:
+            data = safe_json_dict(r.json())
+            results = ensure_list_of_dicts(data.get("results"))
+            if results:
+                bibjson = results[0].get("bibjson") or {}
+                apc = bibjson.get("apc") or {}
+                has_apc = apc.get("has_apc")
+                licenses = ensure_list_of_dicts(bibjson.get("license"))
+                license_type = licenses[0].get("type") if licenses else None
+                return {
+                    "is_doaj": True,
+                    "is_diamond": (has_apc is False),
+                    "license": license_type,
+                    "title": bibjson.get("title"),
+                }
+        return {"is_doaj": False}
+
     @safe_call(default={}, log_errors=True)
+    @cached_api_call("unpaywall")
     def fetch_unpaywall_data(self, doi):
-        url = f"{UNPAYWALL_API}{doi}"
+        if not doi:
+            return {}
+        url = f"{UNPAYWALL_API}{encode_doi_for_url(doi)}"
         params = {"email": self.config.EMAIL_CONTACT}
-        r = rate_limited_get(url, session=self.SESSION, params=params, timeout=30)
+        r = rate_limited_get(url, session=self.SESSION, params=params, headers=self.HEADERS, timeout=30)
         if r.status_code == 200:
             return safe_json_dict(r.json())
         return {}
 
+    @safe_call(default={}, log_errors=True)
     @cached_api_call("crossref")
     def fetch_crossref_data(self, doi):
-        try:
-            url = f"{CROSSREF_API_URL}/{doi}"
-            r = rate_limited_get(url, session=self.SESSION, headers=self.HEADERS, timeout=30)
-            
-            if r.status_code == 200:
-                m = safe_json_dict(r.json()).get('message', {})
-                affs = [a['name'] for auth in ensure_list_of_dicts(m.get('author')) for a in ensure_list_of_dicts(auth.get('affiliation')) if 'name' in a]
-                funders = []
-                for f in ensure_list_of_dicts(m.get('funder')):
-                    fname = f.get('name')
-                    awards = f.get('award', [])
-                    if fname: funders.append(f"{fname} (Award: {', '.join([str(x) for x in awards if x])})" if awards else fname)
-                authors = []
-                for auth in ensure_list_of_dicts(m.get('author')):
-                    family = auth.get('family')
-                    given = auth.get('given')
-                    if family and given: authors.append(f"{family}, {given}")
-                    elif family: authors.append(family)
-                
-                crossref_pdf = None
-                if 'link' in m:
-                    for l in ensure_list_of_dicts(m['link']):
-                        if l.get('content-type') == 'application/pdf':
-                            crossref_pdf = l.get('URL')
-                            if l.get('intended-application') == 'text-mining':
-                                break 
-                                
-                data = {'publisher': m.get('publisher'), 'license': next((l['URL'] for l in ensure_list_of_dicts(m.get('license')) if 'URL' in l), None), 'affiliations': affs, 'funders': funders, 'authors': authors, 'crossref_pdf': crossref_pdf, 'raw_message': m}
-                return data
-            else:
-                return {}
-
-        except Exception as e:
-            logging.error(f"CrossRef Fetch Error for {doi}: {e}")
+        if not doi:
             return {}
+        url = f"{CROSSREF_API_URL}/{encode_doi_for_url(doi)}"
+        r = rate_limited_get(url, session=self.SESSION, headers=self.HEADERS, timeout=30)
+        if r.status_code == 200:
+            message = safe_json_dict(r.json()).get("message", {})
+            return parse_crossref_message(message)
+        return {}
 
-    @cached_api_call("sherpa")
     @safe_call(default=None, log_errors=True)
+    @cached_api_call("sherpa")
     def fetch_sherpa_policy(self, issn):
-        if self.config.SHERPA_KEY and issn:
-            r = rate_limited_get(SHERPA_API_URL, params={"item-type": "publication", "format": "json", "limit": "1", "api-key": self.config.SHERPA_KEY, "filter": json.dumps([["issn", "equals", issn]])}, timeout=10)
-            if r.status_code == 200:
-                data = safe_json_dict(r.json())
-                uri = None
-                if data.get("items"): uri = data["items"][0].get("uri")
-                return uri
-        return None
-
-    @cached_api_call("datacite")
-    @safe_call(default={}, log_errors=True)
-    def fetch_datacite_data(self, doi):
-        r = rate_limited_get(f"{DATACITE_API_URL}{doi}", headers=self.HEADERS, timeout=10)
+        if not self.config.SHERPA_KEY or not issn:
+            return None
+        r = rate_limited_get(
+            SHERPA_API_URL,
+            session=self.SESSION,
+            params={
+                "item-type": "publication",
+                "format": "json",
+                "limit": "1",
+                "api-key": self.config.SHERPA_KEY,
+                "filter": json.dumps([["issn", "equals", issn]]),
+            },
+            timeout=10,
+        )
         if r.status_code == 200:
             data = safe_json_dict(r.json())
-            attrs = deep_get(data, ['data', 'attributes'])
+            items = ensure_list_of_dicts(data.get("items"))
+            if items:
+                return items[0].get("uri")
+        return ""
+
+    @safe_call(default={}, log_errors=True)
+    @cached_api_call("datacite")
+    def fetch_datacite_data(self, doi):
+        if not doi:
+            return {}
+        r = rate_limited_get(
+            f"{DATACITE_API_URL}{encode_doi_for_url(doi)}",
+            session=self.SESSION,
+            headers=self.HEADERS,
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = safe_json_dict(r.json())
+            attrs = deep_get(data, ["data", "attributes"])
             if attrs:
                 abstract = None
-                for d in ensure_list_of_dicts(attrs.get('descriptions')):
-                    if d.get('descriptionType') == 'Abstract': abstract = d.get('description'); break
+                for desc in ensure_list_of_dicts(attrs.get("descriptions")):
+                    if desc.get("descriptionType") == "Abstract":
+                        abstract = desc.get("description")
+                        break
                 datasets = []
-                for re_id in ensure_list_of_dicts(attrs.get('relatedIdentifiers')):
-                    if re_id.get('resourceTypeGeneral') in ['Dataset', 'Software', 'Model']:
+                for re_id in ensure_list_of_dicts(attrs.get("relatedIdentifiers")):
+                    if re_id.get("resourceTypeGeneral") in ("Dataset", "Software", "Model"):
                         datasets.append(f"{re_id.get('relatedIdentifier')} ({re_id.get('resourceTypeGeneral')})")
-                ret = {'abstract': abstract, 'datasets': datasets}
-                return ret
+                return {"abstract": abstract, "datasets": datasets}
         return {}
+
+    def _openalex_auth_params(self):
+        params = {}
+        if self.config.EMAIL_CONTACT:
+            params["mailto"] = self.config.EMAIL_CONTACT
+        if getattr(self.config, "OPENALEX_KEY", ""):
+            params["api_key"] = self.config.OPENALEX_KEY
+        return params
 
     def harvest_openalex(self, start_date, end_date, target_affil, stats_callback=None):
         oa_filter = (
             f"from_publication_date:{start_date},"
             f"to_publication_date:{end_date},"
-            "type:!dissertation" 
+            "type:!dissertation"
         )
-        
         logging.info(f"--- OpenAlex Discovery: {target_affil} ({oa_filter}) ---")
-        
-        # 1. Lookup Institution ID
+
         inst_id = None
         try:
             logging.info(f"OpenAlex: Searching for institution '{target_affil}'...")
-            r = rate_limited_get(OPENALEX_INST_URL, params={'search': target_affil}, headers=self.HEADERS)
+            inst_params = {"search": target_affil, **self._openalex_auth_params()}
+            r = rate_limited_get(OPENALEX_INST_URL, session=self.SESSION, params=inst_params, headers=self.HEADERS)
             if r.status_code == 200:
                 data = safe_json_dict(r.json())
-                results_list = data.get('results', [])
-                if results_list: 
-                    inst_id = results_list[0]['id'].split('/')[-1]
-                    logging.info(f"OpenAlex: Found Institution ID: {inst_id} ({results_list[0]['display_name']})")
+                results_list = ensure_list_of_dicts(data.get("results"))
+                if results_list and results_list[0].get("id"):
+                    inst_id = results_list[0]["id"].split("/")[-1]
+                    logging.info(f"OpenAlex: Found Institution ID: {inst_id} ({results_list[0].get('display_name')})")
                 else:
                     logging.warning(f"OpenAlex: No institution found matching '{target_affil}'. Falling back to string match.")
-        except Exception as e: 
+        except Exception as e:
             logging.error(f"OpenAlex Institution Search Failed: {e}")
 
-        # 2. Construct Filter
         if inst_id:
             filter_val = f"institutions.id:{inst_id},{oa_filter}"
         else:
             filter_val = f"institutions.display_name:{target_affil},{oa_filter}"
 
         filter_val += ",is_oa:true,type:article|review|book|book-chapter|proceedings-article|report|dataset|preprint|letter|standard"
-        params = {'filter': filter_val, 'per-page': 100, 'mailto': self.config.EMAIL_CONTACT, 'cursor': '*'}
-        
+        params = {"filter": filter_val, "per-page": 100, "cursor": "*", **self._openalex_auth_params()}
         logging.info(f"OpenAlex Filter: {filter_val}")
 
         results = []
         while True:
             try:
-                r = rate_limited_get(OPENALEX_WORKS_URL, params=params)
-                if r.status_code != 200: 
-                    logging.error(f"OpenAlex API Error {r.status_code}: {r.text}")
+                r = rate_limited_get(OPENALEX_WORKS_URL, session=self.SESSION, params=params, headers=self.HEADERS)
+                if r.status_code != 200:
+                    logging.error(f"OpenAlex API Error {r.status_code}: {r.text[:300]}")
                     break
-                
+
                 data = safe_json_dict(r.json())
-                items = ensure_list_of_dicts(data.get('results'))
-                
-                if not items: 
+                items = ensure_list_of_dicts(data.get("results"))
+                if not items:
                     logging.info("OpenAlex: No more results found (End of Cursor).")
                     break
-                    
-                for i in items:
+
+                for item in items:
                     if stats_callback:
-                        stats_callback('openalex_raw_total', 1)
-                    raw_status = deep_get(i, ['open_access', 'oa_status'])
-                    if raw_status in ['gold', 'hybrid', 'diamond'] and stats_callback: 
-                        stats_callback('openalex_oa_kept', 1)
-                    bib = i.get('biblio', {})
-                    pgs = f"{bib.get('first_page')}-{bib.get('last_page')}" if bib.get('last_page') else bib.get('first_page')
-                    norm_authors = [{'name': deep_get(s, ['author', 'display_name']), 'orcid': deep_get(s, ['author', 'orcid'])} for s in ensure_list_of_dicts(i.get('authorships'))]
-                    
-                    abstract_text = reconstruct_openalex_abstract(i.get('abstract_inverted_index'))
-                    
+                        stats_callback("openalex_raw_total", 1)
+                    doi = normalize_doi(item.get("doi"))
+                    raw_status = deep_get(item, ["open_access", "oa_status"])
+                    oa_status = normalize_oa_status(raw_status, doi)
+                    if oa_status in ("Gold", "Hybrid", "Diamond") and stats_callback:
+                        stats_callback("openalex_oa_kept", 1)
+
+                    bib = item.get("biblio") or {}
+                    first_page = bib.get("first_page")
+                    last_page = bib.get("last_page")
+                    pgs = f"{first_page}-{last_page}" if (first_page and last_page) else first_page
+
+                    norm_authors = [
+                        {
+                            "name": deep_get(s, ["author", "display_name"]),
+                            "orcid": deep_get(s, ["author", "orcid"]),
+                        }
+                        for s in ensure_list_of_dicts(item.get("authorships"))
+                    ]
+
                     results.append({
-                        'source': 'openalex', 'doi': i.get('doi', '').replace('https://doi.org/', '') if i.get('doi') else None,
-                        'title': i.get('display_name'), 'date': i.get('publication_date'),
-                        'journal': deep_get(i, ['primary_location', 'source', 'display_name']),
-                        'publisher': deep_get(i, ['primary_location', 'source', 'host_organization_name']),
-                        'oa_status': normalize_oa_status(raw_status, i.get('doi')),
-                        'pdf_url': deep_get(i, ['best_oa_location', 'pdf_url']),
-                        'norm_authors': norm_authors, 'raw': i,
-                        'volume': bib.get('volume'), 'issue': bib.get('issue'), 'pages': pgs,
-                        'issn': deep_get(i, ['primary_location', 'source', 'issn_l']),
-                        'doctype': normalize_doctype(i.get('type')),
-                        'openalex_abstract': abstract_text
+                        "source": "openalex",
+                        "doi": doi,
+                        "title": item.get("display_name") or "Untitled",
+                        "date": item.get("publication_date"),
+                        "journal": deep_get(item, ["primary_location", "source", "display_name"]),
+                        "publisher": deep_get(item, ["primary_location", "source", "host_organization_name"]),
+                        "oa_status": oa_status,
+                        "pdf_url": deep_get(item, ["best_oa_location", "pdf_url"]),
+                        "norm_authors": norm_authors,
+                        "raw": item,
+                        "volume": bib.get("volume"),
+                        "issue": bib.get("issue"),
+                        "pages": pgs,
+                        "issn": deep_get(item, ["primary_location", "source", "issn_l"]),
+                        "doctype": normalize_doctype(item.get("type")),
+                        "openalex_abstract": reconstruct_openalex_abstract(item.get("abstract_inverted_index")),
                     })
-                cursor = deep_get(data, ['meta', 'next_cursor'])
-                params['cursor'] = cursor
+
+                cursor = deep_get(data, ["meta", "next_cursor"])
                 logging.info(f"OpenAlex: Collected {len(results)} records so far...")
-                if not cursor: break
+                if not cursor or cursor == params["cursor"]:
+                    break
+                params["cursor"] = cursor
             except Exception as e:
                 logging.error(f"OpenAlex Loop Error: {e}")
                 break
@@ -268,83 +472,75 @@ class APIClient:
 
     def harvest_crossref(self, start_date, end_date, target_affil, stats_callback=None):
         logging.info(f"--- Crossref Discovery: {target_affil} ({start_date} to {end_date}) ---")
-        
+
         params = {
-            'query.affiliation': target_affil,
-            'filter': f'from-pub-date:{start_date},until-pub-date:{end_date}',
-            'rows': 100,
-            'cursor': '*',
-            'mailto': self.config.EMAIL_CONTACT
+            "query.affiliation": target_affil,
+            "filter": f"from-pub-date:{start_date},until-pub-date:{end_date}",
+            "rows": 100,
+            "cursor": "*",
+            "mailto": self.config.EMAIL_CONTACT,
         }
-        
+
         results = []
         while True:
             try:
-                r = self.SESSION.get(CROSSREF_API_URL, params=params, headers=self.HEADERS, timeout=60)
-                
-                if r.status_code == 429:
-                    retry_after = int(r.headers.get("Retry-After", 2))
-                    logging.warning(f"CrossRef Discovery Rate Limit (429). Sleeping {retry_after}s...")
-                    time.sleep(retry_after)
-                    continue
-
+                r = rate_limited_get(
+                    CROSSREF_API_URL,
+                    session=self.SESSION,
+                    params=params,
+                    headers=self.HEADERS,
+                    timeout=60,
+                )
                 if r.status_code != 200:
                     logging.error(f"Crossref API Error {r.status_code}")
                     break
-                
-                data = safe_json_dict(r.json()).get('message', {})
-                items = ensure_list_of_dicts(data.get('items'))
-                
+
+                data = safe_json_dict(r.json()).get("message") or {}
+                items = ensure_list_of_dicts(data.get("items"))
                 if not items:
                     logging.info("Crossref: No more results found.")
                     break
-                
-                for i in items:
-                    if stats_callback:
-                        stats_callback('crossref_raw_total', 1)
-                    
-                    doi = i.get('DOI')
-                    title = i.get('title', ['No Title'])[0]
-                    journal = i.get('container-title', [''])[0]
-                    publisher = i.get('publisher')
-                    
-                    norm_authors = []
-                    for auth in ensure_list_of_dicts(i.get('author')):
-                        name = f"{auth.get('given','')} {auth.get('family','')}".strip()
-                        if name: norm_authors.append({'name': name, 'orcid': auth.get('ORCID')})
 
-                    published_date = i.get('published-print', i.get('published-online', {}))
-                    date_parts = published_date.get('date-parts', [[start_date[:4]]])[0]
-                    year = int(str(date_parts[0])) if len(date_parts) > 0 and str(date_parts[0]).isdigit() else int(start_date[:4])
-                    month = int(str(date_parts[1])) if len(date_parts) > 1 and str(date_parts[1]).isdigit() else 1
-                    day = int(str(date_parts[2])) if len(date_parts) > 2 and str(date_parts[2]).isdigit() else 1
-                    date_str = f"{year:04d}"
-                    if len(date_parts) > 1: date_str += f"-{month:02d}"
-                    else: date_str += "-01"
-                    if len(date_parts) > 2: date_str += f"-{day:02d}"
-                    else: date_str += "-01"
+                for item in items:
+                    if stats_callback:
+                        stats_callback("crossref_raw_total", 1)
+
+                    doi = normalize_doi(item.get("DOI"))
+                    titles = item.get("title") or []
+                    title = titles[0] if isinstance(titles, list) and titles else "No Title"
+                    journals = item.get("container-title") or []
+                    journal = journals[0] if isinstance(journals, list) and journals else ""
+                    issns = item.get("ISSN") or []
+                    issn = issns[0] if isinstance(issns, list) and issns else None
+
+                    norm_authors = []
+                    for auth in ensure_list_of_dicts(item.get("author")):
+                        name = f"{auth.get('given', '')} {auth.get('family', '')}".strip()
+                        if name:
+                            norm_authors.append({"name": name, "orcid": auth.get("ORCID")})
 
                     results.append({
-                        'source': 'crossref', 
-                        'doi': doi,
-                        'title': title, 
-                        'date': date_str, 
-                        'journal': journal,
-                        'publisher': publisher,
-                        'oa_status': "Unknown", 
-                        'pdf_url': None, 
-                        'norm_authors': norm_authors, 
-                        'raw': i,
-                        'volume': i.get('volume'), 
-                        'issue': i.get('issue'), 
-                        'pages': i.get('page'),
-                        'issn': i.get('ISSN', [None])[0],
-                        'doctype': normalize_doctype(i.get('type'))
+                        "source": "crossref",
+                        "doi": doi,
+                        "title": title,
+                        "date": _parse_crossref_date(item, start_date[:4]),
+                        "journal": journal,
+                        "publisher": item.get("publisher"),
+                        "oa_status": "Unknown",
+                        "pdf_url": None,
+                        "norm_authors": norm_authors,
+                        "raw": item,
+                        "volume": item.get("volume"),
+                        "issue": item.get("issue"),
+                        "pages": item.get("page"),
+                        "issn": issn,
+                        "doctype": normalize_doctype(item.get("type")),
                     })
-                
-                cursor = data.get('next-cursor')
-                if not cursor or cursor == params['cursor']: break
-                params['cursor'] = cursor
+
+                cursor = data.get("next-cursor")
+                if not cursor or cursor == params["cursor"]:
+                    break
+                params["cursor"] = cursor
                 logging.info(f"Crossref: Collected {len(results)} records so far...")
             except Exception as e:
                 logging.error(f"Crossref Loop Error: {e}")
@@ -352,14 +548,21 @@ class APIClient:
         return results
 
     def lookup_doi_by_title(self, title):
-        if not title: return None
+        if not title:
+            return None
         try:
-            params = {'query.title': title, 'rows': 1, 'mailto': self.config.EMAIL_CONTACT}
-            r = rate_limited_get(CROSSREF_API_URL, session=self.SESSION, params=params, headers=self.HEADERS, timeout=10)
+            params = {"query.title": title, "rows": 1, "mailto": self.config.EMAIL_CONTACT}
+            r = rate_limited_get(
+                CROSSREF_API_URL,
+                session=self.SESSION,
+                params=params,
+                headers=self.HEADERS,
+                timeout=10,
+            )
             if r.status_code == 200:
-                items = safe_json_dict(r.json()).get('message', {}).get('items', [])
+                items = ensure_list_of_dicts(safe_json_dict(r.json()).get("message", {}).get("items"))
                 if items:
-                     return items[0].get('DOI')
+                    return normalize_doi(items[0].get("DOI"))
         except Exception as e:
             logging.debug(f"Error looking up DOI by title '{title}': {e}")
         return None
