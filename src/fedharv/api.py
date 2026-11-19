@@ -25,6 +25,7 @@ from .config import (
     __version__,
 )
 from .utils import (
+    affiliation_matches_target,
     cached_api_call,
     deep_get,
     encode_doi_for_url,
@@ -473,15 +474,30 @@ class APIClient:
     def harvest_crossref(self, start_date, end_date, target_affil, stats_callback=None):
         logging.info(f"--- Crossref Discovery: {target_affil} ({start_date} to {end_date}) ---")
 
+        # Enclose target_affil in quotes for exact phrase matching on Crossref's query.affiliation.
         params = {
-            "query.affiliation": target_affil,
+            "query.affiliation": f'"{target_affil}"',
             "filter": f"from-pub-date:{start_date},until-pub-date:{end_date}",
             "rows": 100,
             "cursor": "*",
             "mailto": self.config.EMAIL_CONTACT,
         }
 
+        start_year = int(start_date[:4])
+        end_year = int(end_date[:4])
         results = []
+        skipped_date = 0
+        skipped_affil = 0
+
+        def _get_year(date_obj):
+            if not isinstance(date_obj, dict):
+                return None
+            dp = date_obj.get("date-parts")
+            if isinstance(dp, list) and dp and isinstance(dp[0], list) and dp[0]:
+                val = str(dp[0][0])
+                return int(val) if val.isdigit() else None
+            return None
+
         while True:
             try:
                 r = rate_limited_get(
@@ -505,37 +521,101 @@ class APIClient:
                     if stats_callback:
                         stats_callback("crossref_raw_total", 1)
 
-                    doi = normalize_doi(item.get("DOI"))
-                    titles = item.get("title") or []
-                    title = titles[0] if isinstance(titles, list) and titles else "No Title"
-                    journals = item.get("container-title") or []
-                    journal = journals[0] if isinstance(journals, list) and journals else ""
-                    issns = item.get("ISSN") or []
-                    issn = issns[0] if isinstance(issns, list) and issns else None
+                    try:
+                        doi = normalize_doi(item.get("DOI"))
+                        titles = item.get("title") or []
+                        title = titles[0] if isinstance(titles, list) and titles else "No Title"
+                        journals = item.get("container-title") or []
+                        journal = journals[0] if isinstance(journals, list) and journals else ""
+                        issns = item.get("ISSN") or []
+                        issn = issns[0] if isinstance(issns, list) and issns else None
 
-                    norm_authors = []
-                    for auth in ensure_list_of_dicts(item.get("author")):
-                        name = f"{auth.get('given', '')} {auth.get('family', '')}".strip()
-                        if name:
-                            norm_authors.append({"name": name, "orcid": auth.get("ORCID")})
+                        raw_authors = ensure_list_of_dicts(item.get("author"))
+                        norm_authors = []
+                        for auth in raw_authors:
+                            name = f"{auth.get('given', '')} {auth.get('family', '')}".strip()
+                            if name:
+                                norm_authors.append({"name": name, "orcid": auth.get("ORCID")})
 
-                    results.append({
-                        "source": "crossref",
-                        "doi": doi,
-                        "title": title,
-                        "date": _parse_crossref_date(item, start_date[:4]),
-                        "journal": journal,
-                        "publisher": item.get("publisher"),
-                        "oa_status": "Unknown",
-                        "pdf_url": None,
-                        "norm_authors": norm_authors,
-                        "raw": item,
-                        "volume": item.get("volume"),
-                        "issue": item.get("issue"),
-                        "pages": item.get("page"),
-                        "issn": issn,
-                        "doctype": normalize_doctype(item.get("type")),
-                    })
+                        date_candidates = [
+                            item.get("published-online"),
+                            item.get("published-print"),
+                            item.get("issued"),
+                            item.get("created"),
+                        ]
+                        years = [y for y in (_get_year(c) for c in date_candidates) if y is not None]
+                        if years and not any(start_year <= y <= end_year for y in years):
+                            logging.debug(
+                                f"Crossref: Skipping '{title}' — years {years} outside {start_year}-{end_year}."
+                            )
+                            skipped_date += 1
+                            continue
+
+                        best_parts = None
+                        for cand in date_candidates:
+                            if isinstance(cand, dict):
+                                dp = cand.get("date-parts")
+                                if isinstance(dp, list) and dp and isinstance(dp[0], list) and dp[0]:
+                                    parts = dp[0]
+                                    if str(parts[0]).isdigit() and start_year <= int(parts[0]) <= end_year:
+                                        best_parts = parts
+                                        break
+                                    if best_parts is None:
+                                        best_parts = parts
+
+                        if best_parts:
+                            year = int(str(best_parts[0])) if str(best_parts[0]).isdigit() else start_year
+                            month = (
+                                max(1, min(12, int(str(best_parts[1]))))
+                                if len(best_parts) > 1 and str(best_parts[1]).isdigit()
+                                else 1
+                            )
+                            day = (
+                                max(1, min(31, int(str(best_parts[2]))))
+                                if len(best_parts) > 2 and str(best_parts[2]).isdigit()
+                                else 1
+                            )
+                            date_str = f"{year:04d}-{month:02d}-{day:02d}"
+                        else:
+                            date_str = _parse_crossref_date(item, start_date[:4])
+
+                        aff_names = [
+                            aff["name"]
+                            for auth in raw_authors
+                            for aff in ensure_list_of_dicts(auth.get("affiliation"))
+                            if aff.get("name")
+                        ]
+                        all_authors_have_affils = bool(raw_authors) and all(
+                            len(ensure_list_of_dicts(a.get("affiliation"))) > 0 for a in raw_authors
+                        )
+                        if (
+                            aff_names
+                            and all_authors_have_affils
+                            and not affiliation_matches_target(aff_names, target_affil)
+                        ):
+                            logging.debug(f"Crossref: Skipping '{title}' — authors affiliated elsewhere.")
+                            skipped_affil += 1
+                            continue
+
+                        results.append({
+                            "source": "crossref",
+                            "doi": doi,
+                            "title": title,
+                            "date": date_str,
+                            "journal": journal,
+                            "publisher": item.get("publisher"),
+                            "oa_status": "Unknown",
+                            "pdf_url": None,
+                            "norm_authors": norm_authors,
+                            "raw": item,
+                            "volume": item.get("volume"),
+                            "issue": item.get("issue"),
+                            "pages": item.get("page"),
+                            "issn": issn,
+                            "doctype": normalize_doctype(item.get("type")),
+                        })
+                    except Exception as item_err:
+                        logging.debug(f"Crossref: Error parsing item {item.get('DOI', 'unknown')}: {item_err}")
 
                 cursor = data.get("next-cursor")
                 if not cursor or cursor == params["cursor"]:
@@ -545,6 +625,10 @@ class APIClient:
             except Exception as e:
                 logging.error(f"Crossref Loop Error: {e}")
                 break
+        logging.info(
+            f"Crossref Discovery complete: {len(results)} records collected "
+            f"(skipped {skipped_date} out-of-range, {skipped_affil} non-matching affiliation)."
+        )
         return results
 
     def lookup_doi_by_title(self, title):

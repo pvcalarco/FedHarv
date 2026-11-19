@@ -290,6 +290,9 @@ class ConfigManager:
             self.STRICT_AFFILIATION_MATCH = self.config.getboolean(
                 "Search", "StrictAffiliationMatch", fallback=True
             )
+            self.ENABLE_CROSSREF_DISCOVERY = self.config.getboolean(
+                "Search", "EnableCrossrefDiscovery", fallback=False
+            )
 
             start_dt = validate_date(self.START_DATE)
             end_dt = validate_date(self.END_DATE)

@@ -179,32 +179,48 @@ class HarvesterEngine:
             self.STATS[stat_name] = (current or 0) + amount
 
     def discover(self):
+        if getattr(self.config, "ENABLE_CROSSREF_DISCOVERY", False):
+            logging.info(
+                f"Starting concurrent API discovery (OpenAlex + Crossref) "
+                f"from {self.config.START_DATE} to {self.config.END_DATE}..."
+            )
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                f_oa = executor.submit(
+                    self.api_client.harvest_openalex,
+                    self.config.START_DATE,
+                    self.config.END_DATE,
+                    self.config.TARGET_AFFIL,
+                    self.increment_stat,
+                )
+                f_cr = executor.submit(
+                    self.api_client.harvest_crossref,
+                    self.config.START_DATE,
+                    self.config.END_DATE,
+                    self.config.TARGET_AFFIL,
+                    self.increment_stat,
+                )
+                oa_list = f_oa.result()
+                cr_list = f_cr.result()
+            return oa_list, cr_list
+
         logging.info(
-            f"Starting concurrent API discovery (OpenAlex + Crossref) "
+            f"Starting API discovery (OpenAlex) "
             f"from {self.config.START_DATE} to {self.config.END_DATE}..."
         )
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            f_oa = executor.submit(
-                self.api_client.harvest_openalex,
-                self.config.START_DATE,
-                self.config.END_DATE,
-                self.config.TARGET_AFFIL,
-                self.increment_stat,
-            )
-            f_cr = executor.submit(
-                self.api_client.harvest_crossref,
-                self.config.START_DATE,
-                self.config.END_DATE,
-                self.config.TARGET_AFFIL,
-                self.increment_stat,
-            )
-            oa_list = f_oa.result()
-            cr_list = f_cr.result()
-        return oa_list, cr_list
+        oa_list = self.api_client.harvest_openalex(
+            self.config.START_DATE,
+            self.config.END_DATE,
+            self.config.TARGET_AFFIL,
+            stats_callback=self.increment_stat,
+        )
+        return oa_list, []
 
     def deduplicate_and_merge(self, openalex_list, crossref_list):
-        logging.info(f"--- Merging: {len(openalex_list)} OpenAlex items + {len(crossref_list)} Crossref items ---")
+        if crossref_list:
+            logging.info(f"--- Merging: {len(openalex_list)} OpenAlex items + {len(crossref_list)} Crossref items ---")
+        else:
+            logging.info(f"--- OpenAlex Discovery Complete: {len(openalex_list)} items found ---")
 
         unique_map = {}
         seen_titles = set()
