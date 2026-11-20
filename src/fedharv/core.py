@@ -644,22 +644,17 @@ class HarvesterEngine:
         self.generate_summary()
         self.metadata_exporter.generate_publisher_report(self.STATS["dept_publisher_breakdown"])
 
+    @staticmethod
+    def _to_json_compatible(value):
+        if isinstance(value, (Counter, defaultdict, dict)):
+            return {str(k): HarvesterEngine._to_json_compatible(v) for k, v in value.items()}
+        if isinstance(value, set):
+            return sorted(value)
+        return value
+
     def _serialize_stats(self):
         return {
-            k: (
-                dict(v)
-                if isinstance(v, Counter)
-                else {
-                    dk: (
-                        {ak: sorted(av) for ak, av in dv.items()}
-                        if isinstance(dv, dict)
-                        else dict(dv)
-                    )
-                    for dk, dv in v.items()
-                }
-                if isinstance(v, defaultdict)
-                else v
-            )
+            k: self._to_json_compatible(v)
             for k, v in self.STATS.items()
             if k != "author_db"
         }

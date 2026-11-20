@@ -152,3 +152,28 @@ def test_process_items_generates_import_batch_after_creating_items(tmp_path):
     import_script = (out_dir / "import_batch.sh").read_text(encoding="utf-8")
     assert "Example_University" in import_script
     assert "set -euo pipefail" in import_script
+
+
+def test_generate_summary_serializes_nested_counters_to_json(tmp_path):
+    import json
+
+    cfg = _write_test_config(tmp_path)
+    harvester = HarvesterEngine(config_path=str(cfg))
+    out_dir = Path(harvester.config.OUTPUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    harvester.STATS["pdf_success"] = 3
+    harvester.STATS["pdf_sources"]["OpenAlex"] += 2
+    harvester.STATS["pdf_sources"]["Browser Click-Bot"] += 1
+    harvester.STATS["dept_breakdown"]["Faculty_of_Law"]["Gold"] += 2
+    harvester.STATS["dept_publisher_breakdown"]["Faculty_of_Law"]["Springer"] += 2
+    harvester.STATS["author_db"]["Doe, Jane"]["depts"].add("Faculty of Law")
+
+    harvester.generate_summary()
+
+    summary = json.loads((out_dir / "harvest_summary.txt").read_text(encoding="utf-8"))
+    assert summary["pdf_success"] == 3
+    assert summary["dept_breakdown"] == {"Faculty_of_Law": {"Gold": 2}}
+    assert summary["dept_publisher_breakdown"] == {"Faculty_of_Law": {"Springer": 2}}
+    assert summary["unique_authors"] == 1
+    assert (out_dir / harvester.config.AUTHOR_REGISTRY_FILE).exists()
